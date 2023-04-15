@@ -34,4 +34,10 @@ void proxy_init(int port, int cache_ttl, int prefetch_depth, int verbose);
  */
 void proxy_start();
 
+/**
+ * @brief Stop the proxy server
+ * 
+ */
+void proxy_stop();
+
 #endif

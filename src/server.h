@@ -21,7 +21,7 @@
 typedef struct server {
     int    port;    // Server port
     int    verbose; // Verbose mode
-    void (*handle_request)(request_t *request, int clientfd); // Request handler
+    void (*handle_client)(int clientfd); // Request handler
 } server_t;
 
 /**
@@ -29,9 +29,9 @@ typedef struct server {
  * 
  * @param port Port to listen on
  * @param verbose Verbose mode
- * @param handle_request Request handler
+ * @param handle_client Request handler
  */
-void server_init(int port, int verbose, void (*handle_request)(request_t *request, int clientfd));
+void server_init(int port, int verbose, void (*handle_client)(request_t *request, int clientfd));
 
 /**
  * @brief Start the server

@@ -11,6 +11,22 @@
 
 #include "proxy.h"
 
+/**
+ * @brief Handle SIGINT signal
+ * 
+ * @param sig Signal number
+ */
+void sigint_handler(int sig) {
+    // Close the server socket
+    server_close();
+
+    // Stop the proxy server
+    proxy_stop();
+
+    // Exit the program
+    exit(0);
+}
+
 void print_usage(char *argv[]) {
     printf("Usage: %s <port> <cache_ttl> [<prefetch_depth>] [-v]\r\n", argv[0]);
 }
@@ -40,6 +56,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    // Register SIGINT handler
+    signal(SIGINT, sigint_handler);
 
     // Initialize the proxy server
     proxy_init(port, cache_ttl, prefetch_depth, verbose);

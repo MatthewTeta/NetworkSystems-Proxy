@@ -23,8 +23,8 @@
 #include "response.h"
 
 typedef enum cache_entry_status {
+    CACHE_ENTRY_STATUS_NOT_FOUND = 0,
     CACHE_ENTRY_STATUS_OK,
-    CACHE_ENTRY_STATUS_NOT_FOUND,
     CACHE_ENTRY_STATUS_IN_PROGRESS,
     CACHE_ENTRY_STATUS_INVALID,
 } cache_entry_status_t;
@@ -107,7 +107,7 @@ response_t *cache_get(request_t *request) {
     while (wait) {
         // Protect the cache with a mutex lock
         sem_wait(&cache_mutex);
-        status = cache_get_status(cache_entry_path);
+        status = cache_entry_hash_usage_ptr[1];
         switch (status) {
         case CACHE_ENTRY_STATUS_OK:
             // Cache entry is valid, use it
@@ -152,8 +152,21 @@ response_t *cache_get(request_t *request) {
         // Update the cache entry status
         sem_wait(&cache_mutex);
         cache_entry_hash_usage_ptr[1] = CACHE_ENTRY_STATUS_OK;
+        cache_entry_hash_usage_ptr[0]++;
         sem_post(&cache_mutex);
     }
+
+    // Assume we can read the resource
+    // TODO: Read the resource from the local file system
+    response_t *response = response_create();
+    response_set_status(response, 200);
+    response_set_header(response, "Content-Type", "text/html");
+    response_set_body(response, "Hello World!", 11);
+
+    // Release the cache entry
+    sem_wait(&cache_mutex);
+    cache_entry_hash_usage_ptr[0]--;
+    sem_post(&cache_mutex);
 }
 
 /**
