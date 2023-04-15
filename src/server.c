@@ -15,8 +15,19 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+/**
+ * @brief Server structure
+ * 
+ */
+typedef struct server {
+    int    port;    // Server port
+    int    verbose; // Verbose mode
+    void (*handle_client)(int clientfd); // Request handler
+} server_t;
+
 // Global variables
 server_t server;
+int stop_server;
 
 /**
  * @brief Initialize the server
@@ -64,8 +75,9 @@ void server_start() {
         fprintf(stderr, "Error: Failed to listen on socket\n");
         exit(1);
     }
+    stop_server = 0;
     // Accept connections
-    while (1) {
+    while (!stop_server) {
         // Accept the connection
         struct sockaddr_in client_addr;
         socklen_t          client_addr_len = sizeof(client_addr);
@@ -78,4 +90,12 @@ void server_start() {
         // Call the request handler
         server.handle_client(clientfd);
     }
+}
+
+/**
+ * @brief Stop the server
+ *
+ */
+void server_stop() {
+    stop_server = 1;
 }

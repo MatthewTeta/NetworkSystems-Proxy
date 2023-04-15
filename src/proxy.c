@@ -27,6 +27,8 @@
 #include "server.h"
 
 // Global variables
+char *cache_path;
+char *blocklist_path;
 int port;
 int cache_ttl;
 int prefetch_depth;
@@ -36,7 +38,7 @@ int clientfd;
 int proxyfd;
 
 // Function prototypes
-void *handle_client(void *arg);
+void  handle_client(void *arg);
 void *handle_response(void *arg);
 void *handle_prefetch(void *arg);
 
@@ -48,17 +50,24 @@ void *handle_prefetch(void *arg);
  * @param prefetch_depth Prefetch depth
  * @param verbose Verbose mode
  */
-void proxy_init(int port, int cache_ttl, int prefetch_depth, int verbose) {
+void proxy_init(char *cache_path, char *blocklist_path, int port, int cache_ttl,
+                int prefetch_depth, int verbose) {
+    if (verbose) {
+        printf("Initializing the proxy server\n");
+    }
+    // Set the global variables
+    cache_path     = cache_path;
+    blocklist_path = blocklist_path;
     port           = port;
     cache_ttl      = cache_ttl;
     prefetch_depth = prefetch_depth;
     verbose        = verbose;
 
     // Initialize the cache
-    cache_init(cache_ttl, verbose);
+    cache_init(cache_path, cache_ttl, verbose);
 
     // Initialize the Server
-    server_init(port, handle_client);
+    server_init(port, verbose, handle_client);
 }
 
 /**
@@ -66,6 +75,9 @@ void proxy_init(int port, int cache_ttl, int prefetch_depth, int verbose) {
  *
  */
 void proxy_start() {
+    if (verbose) {
+        printf("Starting the proxy server\n");
+    }
     // Start the server
     server_start();
 }
@@ -75,6 +87,9 @@ void proxy_start() {
  *
  */
 void proxy_stop() {
+    if (verbose) {
+        printf("Stopping the proxy server\n");
+    }
     // Stop the server
     server_stop();
 
@@ -84,8 +99,11 @@ void proxy_stop() {
 
 /**
  * @brief Exit the child process
-*/
+ */
 void exit_child() {
+    if (verbose) {
+        printf("Exiting the child process\n");
+    }
     // Close the client socket
     close(clientfd);
 
@@ -99,7 +117,7 @@ void exit_child() {
  * @param arg Request
  * @return void*
  */
-void *handle_client(void *arg) {
+void handle_client(void *arg) {
     // Get the new client socket
     clientfd = (int)arg;
 
@@ -109,11 +127,12 @@ void *handle_client(void *arg) {
         // Parent process
         // Close the client socket
         close(clientfd);
-    } else {
-        // Child process
-        // Get the request from the client
-        request_t *request = request_get(clientfd);
+        return;
     }
+    // TODO: Loop for keep-alive connections
+    // Child process
+    // Get the request from the client
+    request_t *request = request_get(clientfd);
 
     // Get the response from the cache
     response_t *response = cache_get(request);
@@ -150,4 +169,13 @@ void *handle_client(void *arg) {
 
     // Exit the thread
     pthread_exit(NULL);
+}
+
+/**
+ * @brief Handle not found in cache
+ * 
+ * @param arg Request
+*/
+void *handle_response(void *arg) {
+    // TODO
 }

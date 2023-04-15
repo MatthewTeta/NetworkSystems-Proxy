@@ -11,20 +11,33 @@
 
 #include "proxy.h"
 
+#include <signal.h>
+
+#define CACHE_PATH "cache"
+#define BLOCKLIST_PATH "blocklist"
+
 /**
- * @brief Handle SIGINT signal
+ * @brief Handle SIGINT and SIGCHLD signal
  * 
  * @param sig Signal number
  */
-void sigint_handler(int sig) {
-    // Close the server socket
-    server_close();
+void sig_handler(int sig) {
+    if (sig == SIGINT) {
+        printf("Stopping the server...\n");
+        // Close the server socket
+        server_close();
 
-    // Stop the proxy server
-    proxy_stop();
+        // Stop the proxy server
+        proxy_stop();
 
-    // Exit the program
-    exit(0);
+        // Exit the program
+        exit(0);
+    } else if (sig == SIGCHLD) {
+        // TODO: Check this
+        // Wait for all child processes to exit
+        while (waitpid(-1, NULL, WNOHANG) > 0)
+            ;
+    }
 }
 
 void print_usage(char *argv[]) {
@@ -57,11 +70,22 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Register SIGINT handler
-    signal(SIGINT, sigint_handler);
+    // Handle SIGINT
+    struct sigaction sa;
+    sa.sa_handler = sig_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART; // Restart interrupted system calls
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("sigaction(SIGINT) failed");
+        error(-1, "Error setting up signal handler.\n");
+    }
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction(SIGCHLD) failed");
+        error(-1, "Error setting up signal handler.\n");
+    }
 
     // Initialize the proxy server
-    proxy_init(port, cache_ttl, prefetch_depth, verbose);
+    proxy_init(CACHE_PATH, BLOCKLIST_PATH, port, cache_ttl, prefetch_depth, verbose);
 
     // Start the proxy server
     proxy_start();

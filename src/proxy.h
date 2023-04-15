@@ -18,6 +18,8 @@
 #include "response.h"
 #include "server.h"
 
+#define CACHE_PATH "cache"
+
 /**
  * @brief Initialize the proxy server
  * 
@@ -26,7 +28,7 @@
  * @param prefetch_depth Prefetch depth
  * @param verbose Verbose mode
  */
-void proxy_init(int port, int cache_ttl, int prefetch_depth, int verbose);
+void proxy_init(char *cache_path, char *blocklist_path, int port, int cache_ttl, int prefetch_depth, int verbose);
 
 /**
  * @brief Start the proxy server

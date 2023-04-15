@@ -15,16 +15,6 @@
 #include "request.h"
 
 /**
- * @brief Server structure
- * 
- */
-typedef struct server {
-    int    port;    // Server port
-    int    verbose; // Verbose mode
-    void (*handle_client)(int clientfd); // Request handler
-} server_t;
-
-/**
  * @brief Initialize the server
  * 
  * @param port Port to listen on
