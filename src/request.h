@@ -12,33 +12,44 @@
 #ifndef REQUEST_H
 #define REQUEST_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "http.h"
+
+#include <stdio.h>
+
+#define REQUEST_CHUNK_SIZE    1024
+#define KEEP_ALIVE_TIMEOUT_MS 10000
+
+#define REQUEST_URI_REGEX                                                      \
+    "^(\\w+)\\s+(http[s]?://)?([^/:]+)(:[\\d]+)?(.*)\\s+(HTTP/[\\d\\.]+)"
 
 /**
  * @brief Request structure
  *
  */
 typedef struct request {
-    FILE           *request_fp; // Request string stream
+    connection_t   *connection;  // Connection
+    char           *request;     // Request string
+    size_t          request_len; // Request string length
+    FILE           *request_fp;  // Request string stream
+    int             https;       // HTTPS request
+    int             port;        // Request port
     char           *host;        // Request host
     char           *method;      // Request method
     char           *uri;         // Request URI
     char           *version;     // Request version
     http_headers_t *headers;     // Request headers
+    size_t          header_len;  // Request header length
     char           *body;        // Request body
+    size_t          body_len;    // Request body length
 } request_t;
 
 /**
- * @brief Parse a request
+ * @brief Recieve a request from a client socket
  *
- * @param request_fp Request string
- * @return request_t* Parsed request
+ * @param clientfd Client socket
+ * @return request_t* Request
  */
-request_t *request_parse(FILE *request_fp);
+request_t *request_get(int clientfd);
 
 /**
  * @brief Free a request
@@ -46,6 +57,21 @@ request_t *request_parse(FILE *request_fp);
  * @param request Request to free
  */
 void request_free(request_t *request);
+
+/**
+ * @brief Check if a request is cacheable
+ *
+ * @param request
+ * @return int
+ */
+int request_is_cacheable(request_t *request);
+
+/**
+ * @brief Check if a request is keep-alive
+ *
+ * @param request
+ */
+int request_is_connection_keep_alive(request_t *request);
 
 /**
  * @brief Get a key to hash the request on. Return NULL if the request is not

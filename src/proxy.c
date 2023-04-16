@@ -29,13 +29,13 @@
 // Global variables
 char *cache_path;
 char *blocklist_path;
-int port;
-int cache_ttl;
-int prefetch_depth;
-int verbose;
-int serverfd;
-int clientfd;
-int proxyfd;
+int   port;
+int   cache_ttl;
+int   prefetch_depth;
+int   verbose;
+int   serverfd;
+int   clientfd;
+int   proxyfd;
 
 // Function prototypes
 void  handle_client(void *arg);
@@ -117,22 +117,18 @@ void exit_child() {
  * @param arg Request
  * @return void*
  */
-void handle_client(void *arg) {
-    // Get the new client socket
-    clientfd = (int)arg;
-
-    // Fork the process to handle the request
-    pid_t pid = fork();
-    if (pid) {
-        // Parent process
-        // Close the client socket
-        close(clientfd);
-        return;
-    }
-    // TODO: Loop for keep-alive connections
+void handle_client(connection_t *connection) {
     // Child process
-    // Get the request from the client
-    request_t *request = request_get(clientfd);
+    int connection_keep_alive = 0;
+    // Recv the request from the client
+    request_t *request = request_get(connection);
+    if (request == NULL) {
+        exit_child();
+    }
+
+    connection_keep_alive = request_is_connection_keep_alive(request);
+
+    // Check if the request is in the blocklist
 
     // Get the response from the cache
     response_t *response = cache_get(request);
@@ -173,9 +169,9 @@ void handle_client(void *arg) {
 
 /**
  * @brief Handle not found in cache
- * 
+ *
  * @param arg Request
-*/
+ */
 void *handle_response(void *arg) {
     // TODO
 }

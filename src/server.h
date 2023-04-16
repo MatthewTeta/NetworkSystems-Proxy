@@ -1,32 +1,66 @@
 /**
  * @file server.h
  * @author Matthew Teta (matthew.teta@colorado.edu)
- * @brief 
+ * @brief Abstract forking server
  * @version 0.1
  * @date 2023-04-14
- * 
+ *
  * @copyright Copyright (c) 2023
- * 
+ *
  */
 
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "request.h"
+/**
+ * @brief Connection structure
+ *
+ * @details This struct contains information about a client connection
+ *
+ * @param clientfd Client file descriptor
+ * @param client_ip Client IP address
+ * @param host Client host information
+ */
+typedef struct connection {
+    int                clientfd;
+    char               client_ip[INET_ADDRSTRLEN];
+    struct hostent     host;
+    struct sockaddr_in client_addr;
+    socklen_t          client_addr_len;
+} connection_t;
 
 /**
- * @brief Initialize the server
- * 
+ * @brief Server configuration
+ *
+ * @details This struct contains the configuration for the server
+ *
  * @param port Port to listen on
  * @param verbose Verbose mode
- * @param handle_client Request handler
+ * @param handle_client Connection handler
  */
-void server_init(int port, int verbose, void (*handle_client)(request_t *request, int clientfd));
+typedef struct server_config {
+    int port;
+    int verbose;
+    int timeout;
+    void (*handle_client)(connection_t *connection);
+} server_config_t;
 
 /**
  * @brief Start the server
- * 
+ *
  */
-void server_start();
+void server_start(server_config_t config);
+
+/**
+ * @brief Stop the server
+ *
+ * @details This function will block until all client connections are closed
+ */
+void server_stop();
+
+/**
+ * @brief Exit a client connection
+ */
+void close_connection(connection_t *connection);
 
 #endif

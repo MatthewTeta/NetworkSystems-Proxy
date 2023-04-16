@@ -1,13 +1,11 @@
 /**
  * @file server.c
  *
- * @brief Calls socket, bind, listen, and accept
+ * @brief Calls socket, bind, listen, and accept, fork
  */
 
 #include "server.h"
 
-#include <arpa/inet.h>
-#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,39 +13,20 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/**
- * @brief Server structure
- * 
- */
-typedef struct server {
-    int    port;    // Server port
-    int    verbose; // Verbose mode
-    void (*handle_client)(int clientfd); // Request handler
-} server_t;
+#include "pid_list.h"
 
 // Global variables
-server_t server;
-int stop_server;
-
-/**
- * @brief Initialize the server
- *
- * @param port Port to listen on
- * @param verbose Verbose mode
- * @param handle_client Request handler
- */
-void server_init(int port, int verbose,
-                 void (*handle_client)(int clientfd)) {
-    server.port           = port;
-    server.verbose        = verbose;
-    server.handle_client = handle_client;
-}
+server_config_t server;
+pid_list_t     *child_pids  = NULL;
+int             stop_server = 0;
+int             parent      = 1;
 
 /**
  * @brief Start the server
  *
  */
-void server_start() {
+void server_start(server_config_t server_config) {
+    memcpy(&server, &server_config, sizeof(server_config_t));
     // Create the socket
     int serverfd = socket(AF_INET, SOCK_STREAM, 0);
     if (serverfd < 0) {
@@ -78,24 +57,113 @@ void server_start() {
     stop_server = 0;
     // Accept connections
     while (!stop_server) {
+        // Reap any child processes that have exited
+        if (child_pids != NULL) {
+            pid_list_reap(child_pids);
+        }
         // Accept the connection
-        struct sockaddr_in client_addr;
-        socklen_t          client_addr_len = sizeof(client_addr);
-        int                clientfd =
-            accept(serverfd, (struct sockaddr *)&client_addr, &client_addr_len);
+        connection_t * = malloc(sizeof(connection_t));
+        memset(connection, 0, sizeof(connection_t));
+        connection->clientfd =
+            accept(serverfd, (struct sockaddr *)&connection->client_addr,
+                   &connection->client_addr_len);
         if (clientfd < 0) {
             fprintf(stderr, "Error: Failed to accept connection\n");
             exit(1);
         }
+        // Fork the process to handle the request
+        pid_t pid = fork();
+        if (pid < 0) {
+            fprintf(stderr, "Error: Failed to fork process\n");
+            exit(1);
+        }
+        if (pid) {
+            // Parent process
+            // Append the child process to the list of child processes
+            if (child_pids == NULL) {
+                child_pids = pid_list_create(pid);
+            } else {
+                pid_list_append(child_pids, pid);
+            }
+            close(clientfd);
+            break;
+        }
+        parent = 0;
+        close(serverfd);
+        // Get the client's address
+        char           *hostaddrp;
+        struct hostent *hostp;
+        hostp = gethostbyaddr(
+            (const char *)&((struct sockaddr_in *)&client_addr)
+                ->sin_addr.s_addr,
+            sizeof(((struct sockaddr_in *)&client_addr)->sin_addr.s_addr),
+            AF_INET);
+        if (hostp == NULL) {
+            error(-3, "ERROR on gethostbyaddr");
+        }
+        hostaddrp = inet_ntoa(((struct sockaddr_in *)&client_addr)->sin_addr);
+        if (hostaddrp == NULL) {
+            error(-3, "ERROR on inet_ntoa\n");
+        }
+        // Print who has connected
+        if (server.verbose)
+            printf("Established connection with %s (%s)\n", hostp->h_name,
+                   hostaddrp);
         // Call the request handler
-        server.handle_client(clientfd);
+        while (!stop_server) {
+            server.handle_client(connection);
+        }
     }
 }
 
 /**
- * @brief Stop the server
+ * @brief Stop the server. This function is called by the signal handler.
  *
  */
 void server_stop() {
     stop_server = 1;
+    if (parent) {
+        // Close the listening socket and tell all child processes to exit
+        close(server_socketfd);
+        // Mask the SIGCHLD signal so that it doesn't interrupt the waitpid
+        // call
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &mask, NULL);
+        pid_list_t *current = child_pids;
+        while (current != NULL) {
+            // KILL ALL THE CHILDREN
+            kill(current->pid, SIGINT);
+            current = current->next;
+        }
+        // Loop through the child pids and wait for them to exit
+        printf("\nWaiting for child processes to exit gracefully...\n");
+        current = child_pids;
+        while (current != NULL) {
+            int status;
+            // REAP ALL THE CHILDREN
+            waitpid(current->pid, &status, 0);
+            current = current->next;
+        }
+        // Free the child pid list
+        pid_list_free(child_pids);
+        // Unblock the SIGCHLD signal
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);
+        if (server_config.verbose) {
+            printf("Server stopped\n");
+        }
+    }
+}
+
+/**
+ * @brief Exit the client process
+ */
+void close_connection(connection_t *connection) {
+    if (server.verbose) {
+        printf("Closing connection\n");
+    }
+    close(connection->clientfd);
+    free(connection);
+    exit(0);
 }
