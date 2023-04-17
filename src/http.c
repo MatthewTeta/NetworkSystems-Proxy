@@ -88,7 +88,7 @@ http_message_t *http_message_recv(connection_t *connection) {
     // the rest of the body.
     fflush(message->fp);
     // Parse the message
-    if (0 != message_header_parse(message)) {
+    if (0 != http_headers_parse(message)) {
         DEBUG_PRINT("Error parsing message header.\n");
         // Send a 400 Bad message response
         response_send(connection->clientfd, 400, "Bad message", NULL, 0);
@@ -152,21 +152,29 @@ void http_message_free(http_message_t *message) {
 
 /**
  * @brief Parse HTTP headers
- * @details Parses HTTP headers from a string. The string must include the
- * \r\n\r\n delimiter. If the function returns NULL, the headers were malformed
- * and the list is automatically freed.
+ * @details Parses HTTP headers from a partial http message (body is not
+ * complete).
  *
- * @param headers_str Headers string including \r\n\r\n delimiter
+ * @param message HTTP message
  * @return http_headers_t* Parsed headers
  */
-http_headers_t *http_headers_parse(char *headers_str) {
-    // TODO: Skip the first line (request line)
+http_headers_t *http_headers_parse(http_message_t *message) {
+    // Set the header line which will be skipped
+    message->header_line = message->message;
     http_headers_t *headers = malloc(sizeof(http_headers_t));
     headers->headers =
         malloc(sizeof(http_header_t *) * HTTP_HEADER_COUNT_DEFAULT);
     headers->size = HTTP_HEADER_COUNT_DEFAULT;
-    char *line    = strtok(headers_str, "\r\n");
+    char *msg     = message->message;
+    char *line    = strtok(msg, "\r\n");
+    int   i       = 0;
     while (line != NULL) {
+        if (i == 0) {
+            // Skip the first line (request line)
+            strtok(NULL, "\r\n");
+            i++;
+            continue;
+        }
         if (strcmp(line, "\r\n") == 0) {
             // End of headers
             break;
@@ -181,6 +189,7 @@ http_headers_t *http_headers_parse(char *headers_str) {
         }
         http_headers_set(headers, key, val);
         line = strtok(NULL, "\r\n");
+        i++;
     }
 }
 

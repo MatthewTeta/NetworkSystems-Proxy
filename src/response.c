@@ -11,6 +11,7 @@
 
 #include "response.h"
 
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,48 +28,150 @@
  * @param response_dest File to write response to
  * @return response_t* Response from server
  */
-response_t *response_recv(request_t *request, FILE *response_dest) {
+response_t *response_recv(request_t *request) {
     // Open a connection to the server
-    connection_t *connection = connection_init(request->host, request->port);
-    if (connection == NULL) {
+    connection_t *server_connection =
+        connection_init(request->host, request->port);
+    if (server_connection == NULL) {
         fprintf(stderr, "Could not connect to server\n");
-        close_connection(connection);
+        close_connection(server_connection);
         return NULL;
     }
 
-    // Send the request
-    // Seek to the beginning of the request
-    int request_fd = fileno(request->request_fp);
-    lseek(request_fd, 0, SEEK_SET);
+    // Send the message
+    http_message_t *message = request->message;
+    // Seek to the beginning of the message
+    int message_fd = fileno(message->fp);
+    lseek(message_fd, 0, SEEK_SET);
     ssize_t nsent;
     size_t  ntot = 0;
-    while (ntot < request->request_len) {
-        nsent = sendfile(connection->clientfd, request_fd, NULL, request->request_len - ntot);
+    while (ntot < message->message_len) {
+        nsent = sendfile(server_connection->clientfd, message_fd, NULL,
+                         message->message_len - ntot);
         if (nsent < 0) {
-            fprintf(stderr, "Could not send request\n");
+            fprintf(stderr, "Could not send message\n");
+            close_connection(server_connection);
             return NULL;
         } else if (nsent == 0) {
             DEBUG_PRINT("Sent 0 bytes in response_recv!!\n");
         }
         ntot += nsent;
     }
-
+    // Message has been sent
 
     // Get the response
-    response_t *response = response_parse(connection->clientfd);
+    http_message_t *response_message = http_message_recv(server_connection);
+    response_t     *response         = malloc(sizeof(response_t));
+    memset(response, 0, sizeof(response_t));
+    response->message = response_message;
+    response_header_parse(server_connection->clientfd);
+
+    // Close the connection
+    close_connection(server_connection);
+
+    return response;
 }
 
 /**
  * @brief Parse a response
  *
- * @param response_str Response string
- * @return response_t* Parsed response
+ * @param request Request to parse
+ * @return int 0 on success, -1 on failure
  */
-response_t *response_parse(char *response_str);
+int response_header_parse(response_t *response) {
+    http_message_t *response_message = response->message;
+    // Get the status line using regex
+    // #define RESPONSE_STATUS_REGEX "^(HTTP/[\\d\\.]+)?\\s+(\\d+)\\s+(.*)"
+
+    // Compile the regex
+    regex_t regex;
+    int     reti = regcomp(&regex, RESPONSE_STATUS_REGEX, REG_EXTENDED);
+    if (reti) {
+        fprintf(stderr, "Could not compile regex\n");
+        regfree(&regex);
+        return -1;
+    }
+
+    char *status_line = response->message->header_line;
+
+    // Execute the regex
+    regmatch_t match[4];
+    reti = regexec(&regex, status_line, 4, match, 0);
+    if (reti == REG_NOMATCH) {
+        fprintf(stderr, "Could not match regex\n");
+        regfree(&regex);
+        return -1;
+    }
+
+    // Get the version (if it exists)
+    if (match[1].rm_so != -1) {
+        response->version = strndup(status_line + match[1].rm_so,
+                                    match[1].rm_eo - match[1].rm_so);
+    }
+
+    // Get the status code
+    char *status_code_str =
+        strndup(status_line + match[2].rm_so, match[2].rm_eo - match[2].rm_so);
+    response->status_code = atoi(status_code_str);
+    free(status_code_str);
+
+    // Get the reason
+    response->reason =
+        strndup(status_line + match[3].rm_so, match[3].rm_eo - match[3].rm_so);
+
+    // Free the regex
+    regfree(&regex);
+
+    return 0;
+}
 
 /**
  * @brief Free a response
  *
  * @param response Response to free
  */
-void response_free(response_t *response);
+void response_free(response_t *response) {
+    if (response == NULL) {
+        return;
+    }
+    if (response->version != NULL) {
+        free(response->version);
+    }
+    if (response->reason != NULL) {
+        free(response->reason);
+    }
+    if (response->message != NULL) {
+        http_message_free(response->message);
+    }
+    if (response->reason != NULL) {
+        free(response->reason);
+    }
+    free(response);
+}
+
+/**
+ * @brief Send a response to a client
+ *
+ * @param response Response to send
+ * @param clientfd Client socket
+ * @return int 0 on success, -1 on failure
+ */
+int response_send(response_t *response, connection_t *connection) {
+    // Seek to the beginning of the message
+    int message_fd = fileno(response->message->fp);
+    lseek(message_fd, 0, SEEK_SET);
+    ssize_t nsent;
+    size_t  ntot = 0;
+    while (ntot < response->message->message_len) {
+        nsent = sendfile(connection->clientfd, message_fd, NULL,
+                         response->message->message_len - ntot);
+        if (nsent < 0) {
+            fprintf(stderr, "Could not send message\n");
+            return -1;
+        } else if (nsent == 0) {
+            DEBUG_PRINT("Sent 0 bytes in response_send!!\n");
+        }
+        ntot += nsent;
+    }
+    return 0;
+}

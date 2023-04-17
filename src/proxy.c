@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -35,7 +36,6 @@ int          cache_ttl;
 int          prefetch_depth;
 int          verbose;
 int          serverfd;
-int          clientfd;
 int          proxyfd;
 blocklist_t *blocklist;
 
@@ -43,6 +43,7 @@ blocklist_t *blocklist;
 void handle_client(connection_t *connection);
 // void *handle_response(void *arg);
 // void *handle_prefetch(void *arg);
+void *proxy_cache_miss_resolver(void *arg);
 
 /**
  * @brief Initialize the proxy server
@@ -118,12 +119,12 @@ void proxy_stop() {
 /**
  * @brief Exit the child process
  */
-void exit_child() {
+void exit_child(connection_t *connection) {
     if (verbose) {
         printf("Exiting the child process\n");
     }
     // Close the client socket
-    close(clientfd);
+    close_connection(connection);
 
     // Exit the child process
     exit(0);
@@ -137,62 +138,68 @@ void exit_child() {
  */
 void handle_client(connection_t *connection) {
     // Child process
-    int connection_keep_alive = 0;
+    int connection_keep_alive = 1;
 
-    // Recv the request from the client
-    request_t *request = request_recv(connection);
-    if (request == NULL) {
-        exit_child();
-    }
+    // Get the time the connection was accepted
+    struct timeval time_accept;
+    gettimeofday(&time_accept, NULL);
 
-    connection_keep_alive = request_is_connection_keep_alive(request);
-
-    // Check if the request is in the blocklist
-    if (blocklist_check(blocklist, request->host)) {
-        // Send a 403 Forbidden response
-        response_send(NULL, connection->clientfd);
-        // continue;
-        // TODO: Change this
-        request_free(request);
-        exit_child();
-    }
-
-    // Get the response from the cache
-    // response_t *response = cache_get(request);
-    response_t *response = NULL;
-
-    // If the response is NULL, then the response is not in the cache
-    if (response == NULL) {
-        // Get the response from the server
-        response = response_recv(request);
-
-        // If the response is NULL, then the server is down or something failed
-        if (response == NULL) {
-            // Send a 504 Gateway Timeout response
-            response_send(NULL, clientfd);
-        } else {
-            // Send the response to the client
-            response_send(response, clientfd);
-
-            // Set the response in the cache
-            cache_set(request, response);
+    while (connection_keep_alive) {
+        // Recv the request from the client
+        request_t *request = request_recv(connection);
+        if (request == NULL) {
+            exit_child(connection);
         }
-    } else {
+
+        connection_keep_alive = request_is_connection_keep_alive(request);
+
+        // Check if the request is in the blocklist
+        if (blocklist_check(blocklist, request->host)) {
+            // Send a 403 Forbidden response
+            response_send(NULL, connection->clientfd);
+            // continue;
+            // TODO: Change this
+            request_free(request);
+            exit_child(connection);
+        }
+
+        // Get the response from the cache
+        // response_t *response = (response_t *)cache_get(request,
+        // proxy_cache_miss_resolver);
+        response_t *response = NULL;
+
+        // If the response is NULL, then the response is not in the cache
+        if (response == NULL) {
+            // Get the response from the server
+            response = response_recv(request);
+
+            // cache_save(request, response);
+
+            // If the response is NULL, then the server is down or something
+            // failed
+            if (response == NULL) {
+                // Send a 504 Gateway Timeout response
+                // response_send(NULL, clientfd);
+                DEBUG_PRINT(
+                    "Error: Failed to get the response from the server\n");
+                exit_child(connection);
+            }
+        }
         // Send the response to the client
-        response_send(response, clientfd);
+        if (0 != response_send(response, connection)) {
+            fprintf(stderr,
+                    "Error: Failed to send the response to the client\n");
+            exit_child(connection);
+        }
+
+        // Free the request
+        request_free(request);
+
+        // Free the response
+        response_free(response);
     }
 
-    // Free the request
-    request_free(request);
-
-    // Free the response
-    response_free(response);
-
-    // Close the client socket
-    close(clientfd);
-
-    // Exit the thread
-    pthread_exit(NULL);
+    exit_child(connection);
 }
 
 /**
@@ -200,6 +207,7 @@ void handle_client(connection_t *connection) {
  *
  * @param arg Request
  */
-void *handle_response(void *arg) {
-    // TODO
+void *proxy_cache_miss_resolver(void *arg) {
+    request_t *request = (request_t *)arg;
+    // response = response_recv(request);
 }

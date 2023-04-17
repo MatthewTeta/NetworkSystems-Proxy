@@ -1,24 +1,25 @@
 /**
  * @file main.c
  * @author Matthew Teta (matthew.teta@colorado.edu)
- * @brief Multithreaded / Forking HTTP Proxy Server with Caching and Link Prefetching
+ * @brief Multithreaded / Forking HTTP Proxy Server with Caching and Link
+ * Prefetching
  * @version 0.1
  * @date 2023-04-14
- * 
+ *
  * @copyright Copyright (c) 2023
- * 
+ *
  */
 
 #include "proxy.h"
 
 #include <signal.h>
 
-#define CACHE_PATH "cache"
+#define CACHE_PATH     "cache"
 #define BLOCKLIST_PATH "blocklist"
 
 /**
  * @brief Handle SIGINT and SIGCHLD signal
- * 
+ *
  * @param sig Signal number
  */
 void sig_handler(int sig) {
@@ -34,6 +35,7 @@ void sig_handler(int sig) {
         exit(0);
     } else if (sig == SIGCHLD) {
         // TODO: Check this
+        DEBUG_PRINT("Child process exited\n");
         // Wait for all child processes to exit
         while (waitpid(-1, NULL, WNOHANG) > 0)
             ;
@@ -45,11 +47,11 @@ void print_usage(char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    int port = 0;
-    int cache_ttl = 0;
+    int port           = 0;
+    int cache_ttl      = 0;
     int prefetch_depth = 0;
-    int verbose = 0;
-    int i = 0;
+    int verbose        = 0;
+    int i              = 0;
 
     // Parse command line arguments
     if (argc < 3) {
@@ -57,7 +59,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    port = atoi(argv[1]);
+    port      = atoi(argv[1]);
     cache_ttl = atoi(argv[2]);
 
     if (argc > 3) {
@@ -85,7 +87,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Initialize the proxy server
-    proxy_int(CACHE_PATH, BLOCKLIST_PATH, port, cache_ttl, prefetch_depth, verbose);
+    proxy_init(CACHE_PATH, BLOCKLIST_PATH, port, cache_ttl, prefetch_depth,
+               verbose);
 
     // Start the proxy server
     proxy_start();

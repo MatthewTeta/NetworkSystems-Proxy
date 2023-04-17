@@ -72,7 +72,7 @@ void http_message_free(http_message_t *message);
  * @param headers_str Headers string
  * @return http_headers_t* Parsed headers
  */
-http_headers_t *http_headers_parse(char *headers_str);
+http_headers_t *http_headers_parse(http_message_t *message);
 
 /**
  * @brief Free HTTP headers

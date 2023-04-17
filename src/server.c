@@ -232,7 +232,6 @@ connection_t *connect_to_hostname(char *host, int port) {
                hostaddrp);
 
     // Set up the connection struct
-    connection->clientfd = clientfd;
     strncpy(connection->client_ip, hostaddrp, INET_ADDRSTRLEN);
     memcpy(&connection->host, hostp, sizeof(struct hostent));
     memcpy(&connection->client_addr, &client_addr, sizeof(client_addr));
