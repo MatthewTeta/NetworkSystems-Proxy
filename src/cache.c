@@ -11,16 +11,16 @@
 
 #include "cache.h"
 
-#include <pthread.h>
+#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
+#include "debug.h"
 #include "md5.h"
-#include "request.h"
-#include "response.h"
 
 typedef enum cache_entry_status {
     CACHE_ENTRY_STATUS_NOT_FOUND = 0,
@@ -29,12 +29,22 @@ typedef enum cache_entry_status {
     CACHE_ENTRY_STATUS_INVALID,
 } cache_entry_status_t;
 
-char   *cache_path;
-int     cache_ttl;
-int     cache_verbose;
-uint8_t cache_entry_hash_usage[16][16][16][16]
-                              [2]; // Indicate if a cache entry is in use
-                                   // [hash][num_users, cache_entry_status]
+typedef struct cache_entry_storage {
+    cache_entry_status_t status;
+    int                  num_users;
+    time_t               timestamp;
+} cache_entry_storage_t;
+
+// Private function prototypes
+void cache_entry_touch();
+
+char *cache_path;
+int   cache_ttl;
+int   cache_verbose;
+cache_entry_storage_t
+    cache_entry_hash_usage[16][16][16]
+                          [16]; // Indicate if a cache entry is in use
+                                // [hash][num_users, cache_entry_status]
 sem_t cache_mutex;
 
 /**
@@ -71,18 +81,21 @@ void cache_destroy() {
 }
 
 /**
- * @brief Get a response from the cache (or from the web if not exists)
+ * @brief Get a cache entry
  *
- * @param request Request to get response for
- * @return response_t* Response from cache
+ * @param key Key to get
+ * @param cache_miss_resolver Function to call if the cache entry is not found
+ * @param arg Argument to pass to the cache miss resolver
+ * @return void* Pointer to the cache entry
  */
-response_t *cache_get(request_t *request) {
-    if (!request) {
-        fprintf(stderr, "cache_get: request is NULL\r\n");
+cache_entry_t *cache_get(char *key,
+                         void(cache_miss_resolver)(char *filepath, void *arg),
+                         void *arg) {
+    if (!key) {
+        fprintf(stderr, "cache_get: key is NULL\r\n");
         exit(1);
     }
 
-    char                *key;
     uint8_t              hash[16];
     char                 hash_str[33];
     char                 cache_entry_path[1024];
@@ -91,46 +104,54 @@ response_t *cache_get(request_t *request) {
     int                  synchronize_local_copy = 0;
 
     // Compute the MD5 hash of the request key
-    request_get_key(request, key);
     md5String(key, hash);
 
     // Only use part of the hash for locks (16*16*16*16 = 65532 locks)
-    uint8_t *cache_entry_hash_usage_ptr =
-        cache_entry_hash_usage[hash[0]][hash[1]][hash[2]][hash[3]];
+    cache_entry_storage_t *cache_entry_hash_usage_ptr =
+        &cache_entry_hash_usage[hash[0]][hash[1]][hash[2]][hash[3]];
 
     // Convert the hash to a string for the cache entry path
     for (int i = 0; i < 16; i++) {
         sprintf(hash_str + (i * 2), "%02x", hash[i]);
     }
     sprintf(cache_entry_path, "%s/%s", cache_path, hash_str);
+    DEBUG_PRINT("cache_get: key=%s, hash=%s\r\n", key, hash_str);
 
     while (wait) {
         // Protect the cache with a mutex lock
         sem_wait(&cache_mutex);
-        status = cache_entry_hash_usage_ptr[1];
+        status = cache_entry_hash_usage_ptr->status;
         switch (status) {
         case CACHE_ENTRY_STATUS_OK:
             // Cache entry is valid, use it
-            cache_entry_hash_usage_ptr[0]++;
+            // Check if the cache entry is expired
+            if (time(NULL) - cache_entry_hash_usage_ptr->timestamp >
+                cache_ttl) {
+                // Cache entry is expired, invalidate it
+                cache_entry_hash_usage_ptr->status = CACHE_ENTRY_STATUS_INVALID;
+                break;
+            }
+            cache_entry_hash_usage_ptr->num_users++;
             wait = 0;
             break;
         case CACHE_ENTRY_STATUS_NOT_FOUND:
             // Cache entry is not found, create it
             cache_entry_touch(cache_entry_path);
-            cache_entry_hash_usage_ptr[1] = CACHE_ENTRY_STATUS_IN_PROGRESS;
-            wait                          = 0;
-            synchronize_local_copy        = 1;
+            cache_entry_hash_usage_ptr->status = CACHE_ENTRY_STATUS_IN_PROGRESS;
+            wait                               = 0;
+            synchronize_local_copy             = 1;
             break;
         case CACHE_ENTRY_STATUS_IN_PROGRESS:
             // Cache entry is in progress, wait for it to finish
             break;
         case CACHE_ENTRY_STATUS_INVALID:
             // Cache entry is invalid
-            if (cache_entry_hash_usage_ptr[0] == 0) {
+            if (cache_entry_hash_usage_ptr->num_users == 0) {
                 // No one is using the cache entry, delete it
-                cache_entry_hash_usage_ptr[1] = CACHE_ENTRY_STATUS_IN_PROGRESS;
-                wait                          = 0;
-                synchronize_local_copy        = 1;
+                cache_entry_hash_usage_ptr->status =
+                    CACHE_ENTRY_STATUS_IN_PROGRESS;
+                wait                   = 0;
+                synchronize_local_copy = 1;
             } else {
                 // Someone is using the cache entry, wait for them to finish
             }
@@ -147,118 +168,92 @@ response_t *cache_get(request_t *request) {
 
     if (synchronize_local_copy) {
         // Synchronize the local copy of the cache entry
-        // TODO: Request the cache entry from the web server
-        // TODO: Save the cache entry to the local file system
+        // Request the cache entry from the web server, and save it to the local
+        // file
+        cache_miss_resolver(cache_entry_path, arg);
         // Update the cache entry status
         sem_wait(&cache_mutex);
-        cache_entry_hash_usage_ptr[1] = CACHE_ENTRY_STATUS_OK;
-        cache_entry_hash_usage_ptr[0]++;
+        cache_entry_hash_usage_ptr->status = CACHE_ENTRY_STATUS_OK;
+        cache_entry_hash_usage_ptr->num_users++;
+        cache_entry_hash_usage_ptr->timestamp = time(NULL);
         sem_post(&cache_mutex);
     }
 
     // Assume we can read the resource
-    // TODO: Read the resource from the local file system
-    response_t *response = response_create();
-    response_set_status(response, 200);
-    response_set_header(response, "Content-Type", "text/html");
-    response_set_body(response, "Hello World!", 11);
+    cache_entry_t *cache_entry = malloc(sizeof(cache_entry_t));
+    memset(cache_entry, 0, sizeof(cache_entry_t));
 
-    // Release the cache entry
-    sem_wait(&cache_mutex);
-    cache_entry_hash_usage_ptr[0]--;
-    sem_post(&cache_mutex);
-}
-
-/**
- * @brief Get the status of a cache entry. Must be called with the cache mutex
- *
- * @param hash_str Hash string of cache entry
- *
- * @return cache_entry_status_t Status of cache entry
- */
-cache_entry_status_t cache_get_status(char *filename) {
-    if (!filename) {
-        fprintf(stderr, "cache_get_status: filename is NULL\r\n");
+    FILE *file = fopen(cache_entry_path, "rb");
+    if (!file) {
+        perror("Failed to open file");
         exit(1);
     }
 
-    time_t      created = 0;
-    struct stat st;
-    int         readable = 0;
-    int         writable = 0;
+    // Determine the file size
+    fseek(file, 0, SEEK_END);
+    cache_entry->size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-    // Stat the file
-    if (stat(filename, &st)) {
-        // File does not exist
-        return CACHE_ENTRY_STATUS_NOT_FOUND;
-    }
-
-    // Check mode bits to determine status of file
-    // File exists
-    if (st.st_mode & S_IRUSR) {
-        readable = 1;
-    }
-    if (st.st_mode & S_IWUSR) {
-        writable = 1;
+    // Allocate a buffer for the file contents
+    char *buffer = malloc(cache_entry->size + 1);
+    if (!buffer) {
+        perror("Failed to allocate memory");
+        fclose(file);
+        exit(1);
     }
 
-    if (readable && writable) {
-        // File is readable and writable
-        return CACHE_ENTRY_STATUS_OK;
-    } else if (readable && !writable) {
-        // File is readable but not writable
-        return CACHE_ENTRY_STATUS_IN_USE;
-    } else if (!readable && writable) {
-        // File is writable but not readable
-        return CACHE_ENTRY_STATUS_IN_PROGRESS;
-    } else {
-        // File is not readable or writable
-        return CACHE_ENTRY_STATUS_NOT_FOUND;
+    // Read the file contents into the buffer
+    fread(buffer, 1, cache_entry->size, file);
+    buffer[cache_entry->size] = '\0';
+
+    // Create a memory stream and write the buffer to it
+    cache_entry->fp = fmemopen(buffer, cache_entry->size, "r");
+    if (!cache_entry->fp) {
+        perror("Failed to create memory stream");
+        free(buffer);
+        fclose(file);
+        exit(1);
     }
 
-    // Check if the meta file exists
-    filename = cache_entry_status.path;
-    sprintf(filename, ".%s/%s", cache_path, hash_str);
-    fp = fopen(filename, "r");
-    if (!fp) {
-        // No meta file means the cache entry is not finished yet (or does not
-        // exist)
-        cache_entry_status.valid = 0;
-    } else {
-        fclose(fp);
-        // Get the creation time of the meta file
-        stat(filename, &st);
-        created                  = st.st_ctime;
-        cache_entry_status.valid = 1;
-        // Check if the cache entry is expired (valid)
-        if (created + cache_ttl < time(NULL)) {
-            remove(filename);
-        }
-    }
+    // Close the file
+    fclose(file);
 
-    // Check if the cache entry exists
-    fp = fopen(filename, "r");
-    if (!fp) {
-        // No cache entry file means the cache entry does not exist
-        cache_entry_status.exists = 0;
-    } else {
-        cache_entry_status.exists = 1;
-        fclose(fp);
-    }
+    cache_entry->key  = strdup(key);
+    cache_entry->path = strdup(cache_entry_path);
+
+    return cache_entry;
 }
+
+/**
+ * @brief Cache entry free
+ * @details This function will free a cache entry
+ * @param entry Cache entry to free
+ */
+void cache_entry_free(cache_entry_t *entry) {
+    if (!entry) {
+        return;
+    }
+    free(entry->key);
+    free(entry->path);
+    free(entry->buffer);
+    fclose(entry->fp);
+    free(entry);
+}
+
+// Private functions
 
 /**
  * @brief Touch a cache entry to indicate that it is in progress (Create if not
  * exists)
  */
-void cache_entry_touch() {
+void cache_entry_touch(char *path) {
     // Create the cache directory if it does not exist
     mkdir(cache_path, 0777);
 
     // Create the meta file
-    FILE *fp = fopen(cache_entry_status.path, "w");
+    FILE *fp = fopen(path, "w");
     if (!fp) {
-        fprintf(stderr, "cache_entry_touch: failed to create meta file\r\n");
+        fprintf(stderr, "cache_entry_touch: failed to create file\r\n");
         exit(1);
     }
     fclose(fp);

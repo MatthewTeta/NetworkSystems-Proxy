@@ -29,10 +29,6 @@ struct blocklist {
     char **list;  // Array of entries
 };
 
-// Global variables
-int     regex_initialized = 0;
-regex_t ip_regex, host_regex;
-
 /**
  * @brief Create a new blocklist
  *
@@ -43,26 +39,6 @@ blocklist_t *blocklist_init(const char *filepath) {
     list->size        = BLOCKLIST_SIZE_DEFAULT;
     list->count       = 0;
     list->list        = malloc(sizeof(blocklist_t *) * list->size);
-
-    // Compile the regexs
-    if (!regex_initialized) {
-        regex_initialized = 1;
-        regcomp(&ip_regex, BLOCKLIST_IP_REGEX, REG_EXTENDED);
-        regcomp(&host_regex, BLOCKLIST_HOST_REGEX, REG_EXTENDED);
-        int status;
-        status = regcomp(&ip_regex, BLOCKLIST_IP_REGEX, REG_EXTENDED);
-        if (status) {
-            DEBUG_PRINT("Could not compile ip regex\n");
-            blocklist_free(list);
-            return NULL;
-        }
-        status = regcomp(&host_regex, BLOCKLIST_HOST_REGEX, REG_EXTENDED);
-        if (status) {
-            DEBUG_PRINT("Could not compile host regex\n");
-            blocklist_free(list);
-            return NULL;
-        }
-    }
 
     // Open the blocklist file
     FILE *fp = fopen(filepath, "r");
@@ -117,7 +93,7 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
         return -1;
     }
     // Add the entry to the blocklist
-    printf("INFO: Adding %s to blocklist\n", test);
+    printf("INFO: Adding %s:%s to blocklist\n", test, new_ip);
 
     // Check if the blocklist is full
     if (blocklist->count == blocklist->size) {
@@ -143,7 +119,7 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
  * @return int 0 if not in blocklist, 1 if in blocklist
  */
 int blocklist_check(blocklist_t *blocklist, const char *test) {
-    char *new_ip[INET_ADDRSTRLEN];
+    char new_ip[INET_ADDRSTRLEN];
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     if (strlen(new_ip) == 0) {
         DEBUG_PRINT("Could not convert %s to an IP\n", test);

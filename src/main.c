@@ -10,9 +10,14 @@
  *
  */
 
-#include "proxy.h"
-
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+
+#include "debug.h"
+#include "proxy.h"
 
 #define CACHE_PATH     "cache"
 #define BLOCKLIST_PATH "blocklist"
@@ -24,9 +29,7 @@
  */
 void sig_handler(int sig) {
     if (sig == SIGINT) {
-        printf("Stopping the server...\n");
-        // Close the server socket
-        server_close();
+        printf("Stopping the proxy...\n");
 
         // Stop the proxy server
         proxy_stop();
@@ -79,11 +82,13 @@ int main(int argc, char *argv[]) {
     sa.sa_flags = SA_RESTART; // Restart interrupted system calls
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("sigaction(SIGINT) failed");
-        error(-1, "Error setting up signal handler.\n");
+        fprintf(stderr, "Error setting up signal handler.\n");
+        exit(-1);
     }
     if (sigaction(SIGCHLD, &sa, NULL) == -1) {
         perror("sigaction(SIGCHLD) failed");
-        error(-1, "Error setting up signal handler.\n");
+        fprintf(stderr, "Error setting up signal handler.\n");
+        exit(-1);
     }
 
     // Initialize the proxy server

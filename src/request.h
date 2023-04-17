@@ -27,13 +27,13 @@
  *
  */
 typedef struct request {
-    http_message *message; // HTTP message
-    int           https;   // HTTPS request
-    int           port;    // Request port
-    char         *host;    // Request host
-    char         *method;  // Request method
-    char         *uri;     // Request URI
-    char         *version; // Request version
+    http_message_t *message; // HTTP message
+    int             https;   // HTTPS request
+    int             port;    // Request port
+    char           *host;    // Request host
+    char           *method;  // Request method
+    char           *uri;     // Request URI
+    char           *version; // Request version
 } request_t;
 
 /**

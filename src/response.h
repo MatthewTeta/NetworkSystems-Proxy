@@ -13,6 +13,7 @@
 #define RESPONSE_H
 
 #include "http.h"
+#include "request.h"
 
 #define RESPONSE_STATUS_REGEX "^(HTTP/[\\d\\.]+)?\\s+(\\d+)\\s+(.*)"
 
@@ -41,7 +42,7 @@ response_t *response_recv(request_t *request);
  * @param response Response to parse
  * @return int 0 on success, -1 on failure
  */
-int response_header_parse(request_t *response);
+int response_header_parse(response_t *response);
 
 /**
  * @brief Free a response

@@ -12,8 +12,15 @@
 #ifndef CACHE_H
 #define CACHE_H
 
-#include "request.h"
-#include "response.h"
+#include <stdio.h>
+
+typedef struct cache_entry {
+    char  *key;
+    char  *path;
+    char **buffer;
+    long   size;
+    FILE  *fp;
+} cache_entry_t;
 
 /**
  * @brief Initialize the cache
@@ -43,6 +50,15 @@ void cache_destroy();
  * @param request Request to get response for
  * @return response_t* Response from cache
  */
-response_t *cache_get(request_t *request);
+cache_entry_t *cache_get(char *key,
+                         void(cache_miss_resolver)(char *filepath, void *arg),
+                         void *arg);
+
+/**
+ * @brief Cache entry free
+ * @details This function will free a cache entry
+ * @param entry Cache entry to free
+ */
+void cache_entry_free(cache_entry_t *entry);
 
 #endif

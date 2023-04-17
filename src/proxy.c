@@ -22,6 +22,7 @@
 
 #include "blocklist.h"
 #include "cache.h"
+#include "debug.h"
 #include "prefetch.h"
 #include "proxy.h"
 #include "request.h"
@@ -43,7 +44,7 @@ blocklist_t *blocklist;
 void handle_client(connection_t *connection);
 // void *handle_response(void *arg);
 // void *handle_prefetch(void *arg);
-void *proxy_cache_miss_resolver(void *arg);
+void proxy_cache_miss_resolver(char *path, void *arg);
 
 /**
  * @brief Initialize the proxy server
@@ -55,30 +56,27 @@ void *proxy_cache_miss_resolver(void *arg);
  * @param prefetch_depth Prefetch depth
  * @param verbose Verbose mode
  */
-void proxy_init(char *cache_path, char *blocklist_path, int port, int cache_ttl,
-                int prefetch_depth, int verbose) {
+void proxy_init(char *_cache_path, char *_blocklist_path, int _port,
+                int _cache_ttl, int _prefetch_depth, int _verbose) {
     if (verbose) {
         printf("Initializing the proxy server\n");
     }
     // Set the global variables
-    cache_path     = cache_path;
-    blocklist_path = blocklist_path;
-    port           = port;
-    cache_ttl      = cache_ttl;
-    prefetch_depth = prefetch_depth;
-    verbose        = verbose;
+    cache_path     = _cache_path;
+    blocklist_path = _blocklist_path;
+    port           = _port;
+    cache_ttl      = _cache_ttl;
+    prefetch_depth = _prefetch_depth;
+    verbose        = _verbose;
 
     // Initialize the blocklist
-    blocklist = blocklist_init(blocklist_path);
+    blocklist = blocklist_init(_blocklist_path);
     if (blocklist == NULL) {
         fprintf(stderr, "Error: Failed to initialize the blocklist\n");
     }
 
     // Initialize the cache
-    cache_init(cache_path, cache_ttl, verbose);
-
-    // Initialize the Server
-    server_init(port, verbose, handle_client);
+    // cache_init(cache_path, cache_ttl, verbose);
 }
 
 /**
@@ -110,7 +108,7 @@ void proxy_stop() {
     server_stop();
 
     // Destroy the cache
-    cache_destroy();
+    // cache_destroy();
 
     // Destroy the blocklist
     blocklist_free(blocklist);
@@ -137,6 +135,9 @@ void exit_child(connection_t *connection) {
  * @return void*
  */
 void handle_client(connection_t *connection) {
+    if (verbose) {
+        printf("Handling a new client connection\nm");
+    }
     // Child process
     int connection_keep_alive = 1;
 
@@ -156,7 +157,8 @@ void handle_client(connection_t *connection) {
         // Check if the request is in the blocklist
         if (blocklist_check(blocklist, request->host)) {
             // Send a 403 Forbidden response
-            response_send(NULL, connection->clientfd);
+            DEBUG_PRINT("Error: Request is in the blocklist\n");
+            // response_send(NULL, connection);
             // continue;
             // TODO: Change this
             request_free(request);
@@ -207,7 +209,8 @@ void handle_client(connection_t *connection) {
  *
  * @param arg Request
  */
-void *proxy_cache_miss_resolver(void *arg) {
-    request_t *request = (request_t *)arg;
+void proxy_cache_miss_resolver(char *path, void *arg) {
+    DEBUG_PRINT("Resolving cache miss\n");
+    // request_t *request = (request_t *)arg;
     // response = response_recv(request);
 }

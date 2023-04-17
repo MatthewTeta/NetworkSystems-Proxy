@@ -15,9 +15,6 @@
 
 #define BLOCKLIST_SIZE_DEFAULT 1024
 
-#define BLOCKLIST_HOST_REGEX "^((http[s]?://)?[^/:]+(:[\\d]+)?([.\\S]*))$"
-#define BLOCKLIST_IP_REGEX   "^([0-9]{1,3}[.]){3}[0-9]{1,3}$"
-
 typedef struct blocklist blocklist_t;
 
 /**

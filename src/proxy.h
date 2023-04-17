@@ -12,12 +12,6 @@
 #ifndef PROXY_H
 #define PROXY_H
 
-#include "cache.h"
-#include "prefetch.h"
-#include "request.h"
-#include "response.h"
-#include "server.h"
-
 #define CACHE_PATH "cache"
 
 /**

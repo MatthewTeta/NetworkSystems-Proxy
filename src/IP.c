@@ -13,6 +13,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <regex.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
+#include "debug.h"
+
+// Global variables
+regex_t ip_regex, host_regex;
 
 /**
  * @brief Convert a hostname (or IP address) to an IP address
@@ -21,7 +29,24 @@
  * @param ipstr IP string (output)
  * @param ipstr_len Length of ipstr buffer
  */
-void host_to_ip(const char *host, char *ipstr, size_t ipstr_len) {
+void hostname_to_ip(const char *host, char *ipstr, size_t ipstr_len) {
+    static int regex_initialized = 0;
+    // Compile the regexs
+    if (!regex_initialized) {
+        regex_initialized = 1;
+        int status;
+        status = regcomp(&ip_regex, IP_REGEX, REG_EXTENDED);
+        if (status) {
+            DEBUG_PRINT("Could not compile ip regex\n");
+            return;
+        }
+        status = regcomp(&host_regex, HOST_REGEX, REG_EXTENDED);
+        if (status) {
+            DEBUG_PRINT("Could not compile host regex\n");
+            return;
+        }
+    }
+
     memset(ipstr, 0, ipstr_len);
     // Check if the host matches the IP regex
     if (regexec(&ip_regex, host, 0, NULL, 0) == 0) {

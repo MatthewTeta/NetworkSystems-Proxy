@@ -20,18 +20,6 @@
 #define MESSAGE_CHUNK_SIZE        1024
 #define KEEP_ALIVE_TIMEOUT_MS     10000
 
-typedef struct http_message {
-    connection_t   *connection;  // Connection
-    char           *message;     // message string
-    size_t          message_len; // message string length
-    FILE           *fp;          // message string stream
-    char           *header_line; // message line
-    http_headers_t *headers;     // message headers
-    size_t          header_len;  // message header length
-    char           *body;        // message body
-    size_t          body_len;    // message body length
-} http_message_t;
-
 /**
  * @brief HTTP header structure
  *
@@ -50,6 +38,23 @@ typedef struct http_headers {
     int             count;   // Number of headers in array
     http_header_t **headers; // Array of headers
 } http_headers_t;
+
+/**
+ * @brief HTTP message structure
+ *
+ * @note This structure is used for both requests and responses
+ */
+typedef struct http_message {
+    connection_t   *connection;  // Connection
+    char           *message;     // message string
+    size_t          message_len; // message string length
+    FILE           *fp;          // message string stream
+    char           *header_line; // message line
+    http_headers_t *headers;     // message headers
+    size_t          header_len;  // message header length
+    char           *body;        // message body
+    size_t          body_len;    // message body length
+} http_message_t;
 
 /**
  * @brief Recv an HTTP message from a connection

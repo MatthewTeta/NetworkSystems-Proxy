@@ -12,9 +12,12 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
+#include "IP.h"
 #include "pid_list.h"
+#include "debug.h"
 
 // Global variables
 server_config_t server;
@@ -34,6 +37,7 @@ void server_start(server_config_t server_config) {
         fprintf(stderr, "Error: Failed to create socket\n");
         exit(1);
     }
+    DEBUG_PRINT("Created socket\n");
     // Set the socket options to reuse the address
     int opt = 1;
     if (setsockopt(server.serverfd, SOL_SOCKET, SO_REUSEADDR, &opt,
@@ -41,6 +45,7 @@ void server_start(server_config_t server_config) {
         fprintf(stderr, "Error: Failed to set socket options\n");
         exit(1);
     }
+    DEBUG_PRINT("Set socket options: port %d\n", server.port);
     // Bind the socket to the port
     struct sockaddr_in server_addr;
     server_addr.sin_family      = AF_INET;
@@ -51,24 +56,28 @@ void server_start(server_config_t server_config) {
         fprintf(stderr, "Error: Failed to bind socket\n");
         exit(1);
     }
+    DEBUG_PRINT("Bound socket\n");
     // Listen on the socket
     if (listen(server.serverfd, 10) < 0) {
         fprintf(stderr, "Error: Failed to listen on socket\n");
         exit(1);
     }
+    DEBUG_PRINT("Listening on socket\n");
     stop_server = 0;
     // Accept connections
     while (!stop_server) {
+        DEBUG_PRINT("Waiting for connection\n");
         // Reap any child processes that have exited
-        if (child_pids != NULL) {
-            pid_list_reap(child_pids);
-        }
+        // if (child_pids != NULL) {
+        //     pid_list_reap(child_pids);
+        // }
         // Accept the connection
         connection_t *connection = malloc(sizeof(connection_t));
         memset(connection, 0, sizeof(connection_t));
         connection->clientfd =
             accept(server.serverfd, (struct sockaddr *)&connection->client_addr,
                    &connection->client_addr_len);
+        DEBUG_PRINT("Accepted connection\n");
         if (connection->clientfd < 0) {
             fprintf(stderr, "Error: Failed to accept connection\n");
             exit(1);
@@ -103,12 +112,14 @@ void server_start(server_config_t server_config) {
                        ->sin_addr.s_addr),
             AF_INET);
         if (hostp == NULL) {
-            error(-3, "ERROR on gethostbyaddr");
+            fprintf(stderr, "ERROR on gethostbyaddr");
+            exit(-3);
         }
         hostaddrp = inet_ntoa(
             ((struct sockaddr_in *)&connection->client_addr)->sin_addr);
         if (hostaddrp == NULL) {
-            error(-3, "ERROR on inet_ntoa\n");
+            fprintf(stderr, "ERROR on inet_ntoa\n");
+            exit(-3);
         }
         // Print who has connected
         if (server.verbose)
@@ -155,7 +166,7 @@ void server_stop() {
         pid_list_free(child_pids);
         // Unblock the SIGCHLD signal
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
-        if (server_config.verbose) {
+        if (server.verbose) {
             printf("Server stopped\n");
         }
     }
@@ -200,7 +211,7 @@ connection_t *connect_to_hostname(char *host, int port) {
     client_addr.sin_port   = htons(port);
     // Convert the request host to an IP address
     char ipstr[INET_ADDRSTRLEN];
-    host_to_ip(host, ipstr, INET_ADDRSTRLEN);
+    hostname_to_ip(host, ipstr, INET_ADDRSTRLEN);
     // Set the server address to the IP address
     if (inet_pton(AF_INET, ipstr, &client_addr.sin_addr) <= 0) {
         fprintf(stderr, "Invalid server address: %s\n", ipstr);
@@ -219,12 +230,14 @@ connection_t *connect_to_hostname(char *host, int port) {
             ((struct sockaddr_in *)&connection->client_addr)->sin_addr.s_addr),
         AF_INET);
     if (hostp == NULL) {
-        error(-3, "ERROR on gethostbyaddr");
+        fprintf(stderr, "ERROR on gethostbyaddr");
+        exit(-3);
     }
     hostaddrp =
         inet_ntoa(((struct sockaddr_in *)&connection->client_addr)->sin_addr);
     if (hostaddrp == NULL) {
-        error(-3, "ERROR on inet_ntoa\n");
+        fprintf(stderr, "ERROR on inet_ntoa\n");
+        exit(-3);
     }
     // Print who has connected
     if (server.verbose)

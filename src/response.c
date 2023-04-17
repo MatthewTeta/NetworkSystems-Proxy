@@ -15,11 +15,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sendfile.h>
 #include <unistd.h>
 
 #include "debug.h"
 #include "http.h"
 #include "request.h"
+#include "server.h"
 
 /**
  * @brief Send the request to the server and get the response
@@ -31,7 +33,7 @@
 response_t *response_recv(request_t *request) {
     // Open a connection to the server
     connection_t *server_connection =
-        connection_init(request->host, request->port);
+        connect_to_hostname(request->host, request->port);
     if (server_connection == NULL) {
         fprintf(stderr, "Could not connect to server\n");
         close_connection(server_connection);
@@ -64,7 +66,7 @@ response_t *response_recv(request_t *request) {
     response_t     *response         = malloc(sizeof(response_t));
     memset(response, 0, sizeof(response_t));
     response->message = response_message;
-    response_header_parse(server_connection->clientfd);
+    response_header_parse(response);
 
     // Close the connection
     close_connection(server_connection);
@@ -79,7 +81,6 @@ response_t *response_recv(request_t *request) {
  * @return int 0 on success, -1 on failure
  */
 int response_header_parse(response_t *response) {
-    http_message_t *response_message = response->message;
     // Get the status line using regex
     // #define RESPONSE_STATUS_REGEX "^(HTTP/[\\d\\.]+)?\\s+(\\d+)\\s+(.*)"
 

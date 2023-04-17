@@ -10,6 +10,12 @@
 
 #include "pid_list.h"
 
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+
+#include "debug.h"
+
 pid_list_t *pid_list_create(pid_t pid) {
     pid_list_t *list = malloc(sizeof(pid_list_t));
     list->pid        = pid;

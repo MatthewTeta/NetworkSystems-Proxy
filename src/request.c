@@ -9,7 +9,10 @@
 #include "request.h"
 
 #include <regex.h>
+#include <stdlib.h>
+#include <string.h>
 
+#include "debug.h"
 #include "response.h"
 
 // Private function prototypes
@@ -67,34 +70,36 @@ int request_header_parse(request_t *request) {
         DEBUG_PRINT("Error compiling regex.\n");
         return -1;
     }
-    status = regexec(&uri_regex, message, 7, uri_matches, 0);
+    status = regexec(&uri_regex, message->message, 7, uri_matches, 0);
     if (status != 0) {
         DEBUG_PRINT("Error parsing request line.\n");
         return -1;
     }
     // Get the method
-    request->method = strndup(message + uri_matches[1].rm_so,
+    request->method = strndup(message->message + uri_matches[1].rm_so,
                               uri_matches[1].rm_eo - uri_matches[1].rm_so);
     // Get http vs https
     if (uri_matches[2].rm_so != -1) {
-        if (strncmp(message + uri_matches[2].rm_so, "https", 5) == 0) {
+        if (strncmp(message->message + uri_matches[2].rm_so, "https", 5) == 0) {
             request->https = 1;
         }
     }
     // Get the host
-    request->host = strndup(message + uri_matches[3].rm_so,
+    request->host = strndup(message->message + uri_matches[3].rm_so,
                             uri_matches[3].rm_eo - uri_matches[3].rm_so);
     // Get the port
     if (uri_matches[4].rm_so != -1) {
-        request->port =
-            strndup(message + uri_matches[4].rm_so + 1,
+        char *port_str =
+            strndup(message->message + uri_matches[4].rm_so + 1,
                     uri_matches[4].rm_eo - uri_matches[4].rm_so - 1);
+        request->port = atoi(port_str);
+        free(port_str);
     }
     // Get the uri
-    request->uri = strndup(message + uri_matches[5].rm_so,
+    request->uri = strndup(message->message + uri_matches[5].rm_so,
                            uri_matches[5].rm_eo - uri_matches[5].rm_so);
     // Get the http version
-    request->version = strndup(message + uri_matches[6].rm_so,
+    request->version = strndup(message->message + uri_matches[6].rm_so,
                                uri_matches[6].rm_eo - uri_matches[6].rm_so);
 
     // Get the Host header
@@ -112,13 +117,13 @@ int request_header_parse(request_t *request) {
 int request_is_connection_keep_alive(request_t *request) {
     http_message_t *message = request->message;
     // Check for the connection header
-    if (http_headers_get(message, "Connection") == NULL) {
+    if (http_headers_get(message->headers, "Connection") == NULL) {
         // Set the connection header to close
-        http_headers_set(message, "Connection", "close");
+        http_headers_set(message->headers, "Connection", "close");
     } else {
         // Check if the connection header is keep-alive
-        if (strcmp(http_headers_get(message, "Connection"), "keep-alive") ==
-            0) {
+        if (strcmp(http_headers_get(message->headers, "Connection"),
+                   "keep-alive") == 0) {
             return 1;
         }
     }
