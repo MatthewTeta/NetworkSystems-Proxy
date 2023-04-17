@@ -12,6 +12,9 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include <arpa/inet.h>
+#include <netdb.h>
+
 /**
  * @brief Connection structure
  *
@@ -22,11 +25,11 @@
  * @param host Client host information
  */
 typedef struct connection {
-    int                clientfd;
-    char               client_ip[INET_ADDRSTRLEN];
-    struct hostent     host;
-    struct sockaddr_in client_addr;
-    socklen_t          client_addr_len;
+    int                     clientfd;
+    char                    client_ip[INET_ADDRSTRLEN];
+    struct hostent          host;
+    struct sockaddr_storage client_addr;
+    socklen_t               client_addr_len;
 } connection_t;
 
 /**
@@ -39,9 +42,9 @@ typedef struct connection {
  * @param handle_client Connection handler
  */
 typedef struct server_config {
+    int serverfd;
     int port;
     int verbose;
-    int timeout;
     void (*handle_client)(connection_t *connection);
 } server_config_t;
 
@@ -62,5 +65,14 @@ void server_stop();
  * @brief Exit a client connection
  */
 void close_connection(connection_t *connection);
+
+/**
+ * @brief Initialize a connection
+ *
+ * @param host Client host information
+ * @param port Client port
+ * @return connection_t* Connection
+ */
+connection_t *connect_to_hostname(char *host, int port);
 
 #endif

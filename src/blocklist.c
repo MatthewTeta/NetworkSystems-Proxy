@@ -13,8 +13,14 @@
 
 #include "blocklist.h"
 
+#include <arpa/inet.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "IP.h"
+#include "debug.h"
 
 // Struct definitions
 struct blocklist {
@@ -22,9 +28,6 @@ struct blocklist {
     int    count; // Number of entries in array
     char **list;  // Array of entries
 };
-
-// Private function prototypes
-void blocklist_test_to_ip(const char *test, char *ip, size_t ip_len);
 
 // Global variables
 int     regex_initialized = 0;
@@ -107,7 +110,7 @@ void blocklist_free(blocklist_t *list) {
  */
 int blocklist_add(blocklist_t *blocklist, const char *test) {
     char *new_ip = malloc(INET_ADDRSTRLEN);
-    blocklist_test_to_ip(test, new_ip, INET_ADDRSTRLEN);
+    hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     if (strlen(new_ip) == 0) {
         DEBUG_PRINT("Could not convert %s to an IP\n", test);
         free(new_ip);
@@ -117,15 +120,16 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
     printf("INFO: Adding %s to blocklist\n", test);
 
     // Check if the blocklist is full
-    if (list->count == list->size) {
+    if (blocklist->count == blocklist->size) {
         // Double the size of the array
-        list->size *= 2;
-        list->list = realloc(list->list, sizeof(blocklist_t *) * list->size);
+        blocklist->size *= 2;
+        blocklist->list =
+            realloc(blocklist->list, sizeof(blocklist_t *) * blocklist->size);
     }
 
-    // Add the new ip to the blocklist
-    list->list[list->count] = new_ip;
-    list->count++;
+    // Add the new ip to the blockblocklist
+    blocklist->list[blocklist->count] = new_ip;
+    blocklist->count++;
 
     return 0;
 }
@@ -138,60 +142,18 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
  *
  * @return int 0 if not in blocklist, 1 if in blocklist
  */
-int blocklist_check(blocklist_t *blocklist, char *test) {
+int blocklist_check(blocklist_t *blocklist, const char *test) {
     char *new_ip[INET_ADDRSTRLEN];
-    blocklist_test_to_ip(test, new_ip, INET_ADDRSTRLEN);
+    hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     if (strlen(new_ip) == 0) {
         DEBUG_PRINT("Could not convert %s to an IP\n", test);
         return 0;
     }
     // Check if the entry is in the blocklist
-    for (int i = 0; i < list->count; i++) {
-        if (strcmp(list->list[i]->value, new_ip) == 0) {
+    for (int i = 0; i < blocklist->count; i++) {
+        if (strcmp(blocklist->list[i], new_ip) == 0) {
             return 1;
         }
     }
     return 0;
-}
-
-// Private functions
-
-/**
- * @brief Convert a blocklist test to an IP if it is a hostname
- *
- * @param test Blocklist test
- * @param ipstr IP string (output)
- * @param ipstr_len Length of ipstr
- */
-void blocklist_test_to_ip(const char *test, char *ipstr, size_t ipstr_len) {
-    memset(ipstr, 0, ipstr_len);
-    // Check if the test matches the IP regex
-    if (regexec(&ip_regex, test, 0, NULL, 0) == 0) {
-        // Move the test to the ipstr
-        strncpy(ipstr, test, ipstr_len);
-    } else if (regexec(&host_regex, test, 0, NULL, 0) == 0) {
-        // Perform a DNS lookup
-        struct addrinfo hints, *res;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family   = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        int status        = getaddrinfo(test, NULL, &hints, &res);
-        if (status != 0) {
-            DEBUG_PRINT("Could not resolve host: %s\n", test);
-            return;
-        }
-        // Convert to a string
-        struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-        void               *addr = &(ipv4->sin_addr);
-        if (inet_ntop(res->ai_family, addr, ipstr, ipstr_len) == NULL) {
-            DEBUG_PRINT("Could not convert IP to string\n");
-            return;
-        }
-        // Free the addrinfo
-        freeaddrinfo(res);
-        // Move the test to the ipstr
-        strncpy(ipstr, test, ipstr_len);
-    } else {
-        fprintf(stderr, "WARNING: Invalid blocklist entry: %s\n", test);
-    }
 }

@@ -12,12 +12,12 @@
 #ifndef REQUEST_H
 #define REQUEST_H
 
-#include "http.h"
+#include "request.h"
 
 #include <stdio.h>
 
-#define REQUEST_CHUNK_SIZE    1024
-#define KEEP_ALIVE_TIMEOUT_MS 10000
+#include "http.h"
+#include "server.h"
 
 #define REQUEST_URI_REGEX                                                      \
     "^(\\w+)\\s+(http[s]?://)?([^/:]+)(:[\\d]+)?(.*)\\s+(HTTP/[\\d\\.]+)"
@@ -27,20 +27,13 @@
  *
  */
 typedef struct request {
-    connection_t   *connection;  // Connection
-    char           *request;     // Request string
-    size_t          request_len; // Request string length
-    FILE           *request_fp;  // Request string stream
-    int             https;       // HTTPS request
-    int             port;        // Request port
-    char           *host;        // Request host
-    char           *method;      // Request method
-    char           *uri;         // Request URI
-    char           *version;     // Request version
-    http_headers_t *headers;     // Request headers
-    size_t          header_len;  // Request header length
-    char           *body;        // Request body
-    size_t          body_len;    // Request body length
+    http_message *message; // HTTP message
+    int           https;   // HTTPS request
+    int           port;    // Request port
+    char         *host;    // Request host
+    char         *method;  // Request method
+    char         *uri;     // Request URI
+    char         *version; // Request version
 } request_t;
 
 /**
@@ -49,7 +42,7 @@ typedef struct request {
  * @param clientfd Client socket
  * @return request_t* Request
  */
-request_t *request_get(int clientfd);
+request_t *request_recv(connection_t *connection);
 
 /**
  * @brief Free a request

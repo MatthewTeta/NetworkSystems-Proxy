@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Initialize the proxy server
-    proxy_init(CACHE_PATH, BLOCKLIST_PATH, port, cache_ttl, prefetch_depth, verbose);
+    proxy_int(CACHE_PATH, BLOCKLIST_PATH, port, cache_ttl, prefetch_depth, verbose);
 
     // Start the proxy server
     proxy_start();

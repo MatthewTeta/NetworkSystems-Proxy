@@ -16,7 +16,6 @@
  * @brief Response structure
  * 
  */
-
 typedef struct response {
     char           *version; // Response version
     int             status;  // Response status
@@ -24,6 +23,14 @@ typedef struct response {
     http_headers_t *headers; // Response headers
     char           *body;    // Response body
 } response_t;
+
+/**
+ * @brief Send the request to the server and get the response
+ * 
+ * @param request Request to send
+ * @return response_t* Response from server
+*/
+response_t *response_recv(request_t *request);
 
 /**
  * @brief Parse a response
