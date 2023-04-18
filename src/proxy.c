@@ -136,7 +136,7 @@ void exit_child(connection_t *connection) {
  */
 void handle_client(connection_t *connection) {
     if (verbose) {
-        printf("Handling a new client connection\nm");
+        printf("Handling a new client connection\n");
     }
     // Child process
     int connection_keep_alive = 1;
@@ -151,8 +151,10 @@ void handle_client(connection_t *connection) {
         if (request == NULL) {
             exit_child(connection);
         }
+        if (strcmp(request->method, )
 
         connection_keep_alive = request_is_connection_keep_alive(request);
+        DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
 
         // Check if the request is in the blocklist
         if (blocklist_check(blocklist, request->host)) {

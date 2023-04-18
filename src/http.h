@@ -45,15 +45,15 @@ typedef struct http_headers {
  * @note This structure is used for both requests and responses
  */
 typedef struct http_message {
-    connection_t   *connection;  // Connection
-    char           *message;     // message string
-    size_t          message_len; // message string length
-    FILE           *fp;          // message string stream
-    char           *header_line; // message line
-    http_headers_t *headers;     // message headers
-    size_t          header_len;  // message header length
-    char           *body;        // message body
-    size_t          body_len;    // message body length
+    connection_t   *connection;   // Connection
+    char           *message;      // message buffer
+    size_t          message_size; // message buffer size
+    size_t          message_len;  // message string length
+    char           *header_line;  // message line
+    http_headers_t *headers;      // message headers
+    size_t          header_len;   // message header length
+    char           *body;         // message body
+    size_t          body_len;     // message body length
 } http_message_t;
 
 /**

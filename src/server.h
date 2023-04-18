@@ -25,11 +25,11 @@
  * @param host Client host information
  */
 typedef struct connection {
-    int                     clientfd;
-    char                    client_ip[INET_ADDRSTRLEN];
-    struct hostent          host;
-    struct sockaddr_storage client_addr;
-    socklen_t               client_addr_len;
+    int                clientfd;
+    char               client_ip[INET_ADDRSTRLEN];
+    struct hostent     host;
+    struct sockaddr_in client_addr;
+    socklen_t          client_addr_len;
 } connection_t;
 
 /**

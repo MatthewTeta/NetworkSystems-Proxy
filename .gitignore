@@ -1,3 +1,5 @@
 dist/
 blocklist/
 cache/
+obj/
+main

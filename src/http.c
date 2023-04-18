@@ -16,14 +16,21 @@
 
 #include "debug.h"
 
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+
 http_message_t *http_message_recv(connection_t *connection) {
     http_message_t *message = malloc(sizeof(http_message_t));
     memset(message, 0, sizeof(http_message_t));
-    // Open a stream to write the message into
-    message->fp    = open_memstream(&message->message, &message->message_len);
-    int message_fd = fileno(message->fp);
+    // // Open a stream to write the message into
+    // message->fp = open_memstream(&message->message, &message->message_len);
+    // DEBUG_PRINT("FP: %p\n", message->fp);
+    // if (message->fp == NULL) {
+    //     fprintf(stderr, "Error opening memstream in http_message_recv:
+    //     FP=%p\n",
+    //             message->fp);
+    // }
 
-    // Read the message into the stream
+    // Read the message into the
     ssize_t bytes_read;
     int     header_complete = 0;
     // Poll vars
@@ -32,6 +39,14 @@ http_message_t *http_message_recv(connection_t *connection) {
     int           rv;
     // Use sendfile to copy the message into the stream
     while (!header_complete) {
+        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+        message->message_size += MESSAGE_CHUNK_SIZE;
+        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+        if (message->message == NULL)
+            message->message = malloc(message->message_size);
+        else
+            message->message = realloc(message->message, message->message_size);
+        DEBUG_PRINT("Waiting for data...\n");
         // Set up a poll to timeout if we don't get any data
         // Poll the socket for data until we get something or a
         // timeout is recieved
@@ -53,29 +68,36 @@ http_message_t *http_message_recv(connection_t *connection) {
             return NULL;
         } else if (rv == 0) {
             // Timeout -> close connection
+            DEBUG_PRINT("Timeout occured in http_message_recv()\n");
             http_message_free(message);
             return NULL;
         }
         // We got data before the timeout, read it
-        while ((bytes_read = sendfile(message_fd, connection->clientfd, NULL,
-                                      MESSAGE_CHUNK_SIZE)) > 0) {
-            DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
-            if (bytes_read == 0) {
-                DEBUG_PRINT("Client socket closed.\n");
-                http_message_free(message);
-                return NULL;
-            } else if (bytes_read < 0) {
-                DEBUG_PRINT("Error reading from client socket.\n");
-                http_message_free(message);
-                return NULL;
-            }
-            if ((message->body = strstr(message->message, "\r\n\r\n")) !=
-                NULL) {
-                message->body += 4;
-                message->header_len = message->body - message->message;
-                header_complete     = 1;
-                break;
-            }
+        bytes_read =
+            recv(connection->clientfd, message->message + message->message_len,
+                 MESSAGE_CHUNK_SIZE, 0);
+        DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
+        if (bytes_read == 0) {
+            // client socket closed
+            DEBUG_PRINT("Client socket closed.\n");
+            http_message_free(message);
+            return NULL;
+        } else if (bytes_read < 0) {
+            // error reading from client socket
+            DEBUG_PRINT("Error reading from client socket.\n");
+            http_message_free(message);
+            return NULL;
+        }
+        message->message_len += bytes_read;
+        // DEBUG_PRINT("Writing %ld bytes to stream.\n", bytes_read);
+        // fwrite(recv_buffer, sizeof(char), bytes_read, message->fp) c;
+        // DEBUG_PRINT("Checking if header is complete.\n");
+        char *rv = message->body = strstr(message->message, "\r\n\r\n");
+        DEBUG_PRINT("strstr \\r\\n\\r\\n RV: %p\n", rv);
+        if ((rv) != NULL) {
+            message->body += 4;
+            message->header_len = message->body - message->message;
+            header_complete     = 1;
         }
     }
     if (!header_complete) {
@@ -86,12 +108,13 @@ http_message_t *http_message_recv(connection_t *connection) {
         http_message_free(message);
         return NULL;
     }
+    DEBUG_PRINT("HEADER_COMPLETE\n");
     // At this point, we have recieved the entire header and a partial body.
     // We need to parse the header to get the content length, and then read
     // the rest of the body.
-    fflush(message->fp);
     // Parse the message
-    if (0 != http_headers_parse(message)) {
+    message->headers = http_headers_parse(message);
+    if (message->headers == NULL) {
         DEBUG_PRINT("Error parsing message header.\n");
         // Send a 400 Bad message response
         // response_send(connection->clientfd, 400, "Bad message", NULL, 0);
@@ -101,8 +124,25 @@ http_message_t *http_message_recv(connection_t *connection) {
 
     // Get the body length
     char *body_length = http_headers_get(message->headers, "Content-Length");
+    DEBUG_PRINT("Body length: %s\n", body_length);
     if (body_length != NULL) {
         message->body_len = atoi(body_length);
+    }
+    DEBUG_PRINT("Body length: %lu\n", message->body_len);
+    // TODO: Check if the body is too long
+    // if (message->body_len > HTTP_MAX_BODY_LEN) {
+    //     DEBUG_PRINT("Body is too long.\n");
+    //     // Send a 400 Bad message response
+    //     // response_send(connection->clientfd, 400, "Bad message", NULL, 0);
+    //     http_message_free(message);
+    //     return NULL;
+    // }
+    // Allocate space for the body
+    if (message->body_len > 0) {
+        message->message_size +=
+            ((message->body_len / MESSAGE_CHUNK_SIZE) + 1) * MESSAGE_CHUNK_SIZE;
+        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+        message->message = realloc(message->message, message->message_size);
     }
 
     if (message->body_len > 0) {
@@ -113,9 +153,12 @@ http_message_t *http_message_recv(connection_t *connection) {
             DEBUG_PRINT("Body is longer than content length.\n");
         }
         while (body_length < message->body_len) {
-            // Use sendfile to copy the message into the stream
-            bytes_read = sendfile(message_fd, connection->clientfd, NULL,
-                                  message->body_len - body_length);
+            // Use recv to copy the message into the stream
+            size_t recv_len =
+                min(MESSAGE_CHUNK_SIZE, message->body_len - body_length);
+            bytes_read =
+                recv(connection->clientfd,
+                     message->message + message->message_len, recv_len, 0);
             DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
             if (bytes_read == 0) {
                 DEBUG_PRINT("Client socket closed.\n");
@@ -126,9 +169,10 @@ http_message_t *http_message_recv(connection_t *connection) {
                 http_message_free(message);
                 return NULL;
             }
+            message->message_len += bytes_read;
             body_length += bytes_read;
         }
-        fflush(message->fp);
+        // fflush(message->fp);
     }
 
     return message;
@@ -143,9 +187,9 @@ void http_message_free(http_message_t *message) {
     if (message == NULL) {
         return;
     }
-    if (message->fp != NULL) {
-        fclose(message->fp);
-    }
+    // if (message->fp != NULL) {
+    //     fclose(message->fp);
+    // }
     if (message->headers != NULL) {
         http_headers_free(message->headers);
     }
@@ -174,9 +218,10 @@ http_headers_t *http_headers_parse(http_message_t *message) {
     char *line    = strtok(msg, "\r\n");
     int   i       = 0;
     while (line != NULL) {
+        DEBUG_PRINT("Line %d: %s\n", i, line);
         if (i == 0) {
             // Skip the first line (request line)
-            strtok(NULL, "\r\n");
+            line = strtok(NULL, "\r\n");
             i++;
             continue;
         }
@@ -184,15 +229,19 @@ http_headers_t *http_headers_parse(http_message_t *message) {
             // End of headers
             break;
         }
-        char *key = strtok(line, ":");
-        char *val = strtok(NULL, ":");
+        char *line_copy = strdup(line); // make a copy of line
+        char *key       = strtok(line_copy, ":");
+        char *val       = strtok(NULL, ":");
         if (key == NULL || val == NULL) {
             // Malformed header
             DEBUG_PRINT("Malformed header: %s\n", line);
+            free(line_copy); // free the copy of line
             http_headers_free(headers);
             return NULL;
+            // continue;
         }
         http_headers_set(headers, key, val);
+        free(line_copy); // free the copy of line
         line = strtok(NULL, "\r\n");
         i++;
     }
@@ -246,24 +295,28 @@ char *http_headers_get(http_headers_t *headers, char *key) {
 void http_headers_set(http_headers_t *headers, char *key, char *value) {
     // TODO: Use a hash table for faster lookup
     // TODO: Convert to lowercase for case-insensitive comparison
-    // First search for the header
-    for (int i = 0; i < headers->count; i++) {
-        if (strcmp(headers->headers[i]->key, key) == 0) {
-            // Header already exists, just update the value
-            free(headers->headers[i]->value);
-            headers->headers[i]->value = strdup(value);
-            return;
-        }
-    }
+    // // First search for the header
+    // for (int i = 0; i < headers->count; i++) {
+    //     if (strcmp(headers->headers[i]->key, key) == 0) {
+    //         // Header already exists, just update the value
+    //         free(headers->headers[i]->value);
+    //         headers->headers[i]->value = strdup(value);
+    //         return;
+    //     }
+    // }
     // Header does not exist, add it
+    DEBUG_PRINT("Adding header: %s: %s\n", key, value);
     // Realloc for additional headers
     if (headers->count >= headers->size) {
         headers->size *= 2;
         headers->headers =
             realloc(headers->headers, sizeof(http_header_t *) * headers->size);
     }
-    http_header_t *header = headers->headers[headers->count] = malloc(sizeof(http_header_t));
-    header->key                                 = strdup(key);
-    header->value                               = strdup(value);
+    http_header_t *header = headers->headers[headers->count] =
+        malloc(sizeof(http_header_t));
+    DEBUG_PRINT("Allocated header at %p\n", header);
+    header->key                      = strdup(key);
+    header->value                    = strdup(value);
+    headers->headers[headers->count] = header;
     headers->count++;
 }

@@ -42,14 +42,14 @@ response_t *response_recv(request_t *request) {
 
     // Send the message
     http_message_t *message = request->message;
-    // Seek to the beginning of the message
-    int message_fd = fileno(message->fp);
-    lseek(message_fd, 0, SEEK_SET);
+    // // Seek to the beginning of the message
+    // int message_fd = fileno(message->fp);
+    // lseek(message_fd, 0, SEEK_SET);
     ssize_t nsent;
     size_t  ntot = 0;
     while (ntot < message->message_len) {
-        nsent = sendfile(server_connection->clientfd, message_fd, NULL,
-                         message->message_len - ntot);
+        nsent = send(server_connection->clientfd, message->message + ntot,
+                     message->message_len - ntot, 0);
         if (nsent < 0) {
             fprintf(stderr, "Could not send message\n");
             close_connection(server_connection);
@@ -158,14 +158,15 @@ void response_free(response_t *response) {
  * @return int 0 on success, -1 on failure
  */
 int response_send(response_t *response, connection_t *connection) {
+    http_message_t *message = response->message;
     // Seek to the beginning of the message
-    int message_fd = fileno(response->message->fp);
-    lseek(message_fd, 0, SEEK_SET);
+    // int message_fd = fileno(response->message->fp);
+    // lseek(message_fd, 0, SEEK_SET);
     ssize_t nsent;
     size_t  ntot = 0;
     while (ntot < response->message->message_len) {
-        nsent = sendfile(connection->clientfd, message_fd, NULL,
-                         response->message->message_len - ntot);
+        nsent = recv(connection->clientfd, message->message + ntot,
+                     response->message->message_len - ntot, 0);
         if (nsent < 0) {
             fprintf(stderr, "Could not send message\n");
             return -1;

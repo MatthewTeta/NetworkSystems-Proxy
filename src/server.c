@@ -6,6 +6,7 @@
 
 #include "server.h"
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +17,8 @@
 #include <unistd.h>
 
 #include "IP.h"
-#include "pid_list.h"
 #include "debug.h"
+#include "pid_list.h"
 
 // Global variables
 server_config_t server;
@@ -67,16 +68,13 @@ void server_start(server_config_t server_config) {
     // Accept connections
     while (!stop_server) {
         DEBUG_PRINT("Waiting for connection\n");
-        // Reap any child processes that have exited
-        // if (child_pids != NULL) {
-        //     pid_list_reap(child_pids);
-        // }
         // Accept the connection
         connection_t *connection = malloc(sizeof(connection_t));
         memset(connection, 0, sizeof(connection_t));
+        struct sockaddr_in *c_addr_in  = &(connection->client_addr);
+        socklen_t          *c_addr_len = &(connection->client_addr_len);
         connection->clientfd =
-            accept(server.serverfd, (struct sockaddr *)&connection->client_addr,
-                   &connection->client_addr_len);
+            accept(server.serverfd, (struct sockaddr *)c_addr_in, c_addr_len);
         DEBUG_PRINT("Accepted connection\n");
         if (connection->clientfd < 0) {
             fprintf(stderr, "Error: Failed to accept connection\n");
@@ -96,35 +94,38 @@ void server_start(server_config_t server_config) {
             } else {
                 pid_list_append(child_pids, pid);
             }
+            pid_list_print(child_pids);
             close(connection->clientfd);
-            break;
+            continue;
         }
+        DEBUG_PRINT("IN CHILD PROCESS: %d\n", pid);
         parent = 0;
         close(server.serverfd);
         // Get the client's address
-        char           *hostaddrp;
-        struct hostent *hostp;
-        // TODO: Wat?? Make this more readable using more stack variables
-        hostp = gethostbyaddr(
-            (const char *)&((struct sockaddr_in *)&connection->client_addr)
-                ->sin_addr.s_addr,
-            sizeof(((struct sockaddr_in *)&connection->client_addr)
-                       ->sin_addr.s_addr),
-            AF_INET);
-        if (hostp == NULL) {
-            fprintf(stderr, "ERROR on gethostbyaddr");
-            exit(-3);
-        }
-        hostaddrp = inet_ntoa(
-            ((struct sockaddr_in *)&connection->client_addr)->sin_addr);
-        if (hostaddrp == NULL) {
-            fprintf(stderr, "ERROR on inet_ntoa\n");
-            exit(-3);
-        }
+        // char           *hostaddrp;
+        // struct hostent *hostp;
+        // // TODO: Wat?? Make this more readable using more stack variables
+        // struct in_addr *c_sin_addr   = &c_addr_in->sin_addr;
+        // char           *c_s_addr     = (char *)&c_sin_addr->s_addr;
+        // size_t          c_s_addr_len = sizeof(c_sin_addr->s_addr);
+        // hostp = gethostbyaddr(c_s_addr, c_s_addr_len, AF_INET);
+        // if (hostp == NULL) {
+        //     herror("Error on gethostbyaddr");
+        //     fprintf(stderr, "ERROR on gethostbyaddr\n");
+        //     exit(-3);
+        // }
+        // hostaddrp = inet_ntoa(*c_sin_addr);
+        // if (hostaddrp == NULL) {
+        //     fprintf(stderr, "ERROR on inet_ntoa\n");
+        //     exit(-3);
+        // }
         // Print who has connected
-        if (server.verbose)
-            printf("Established connection with %s (%s)\n", hostp->h_name,
-                   hostaddrp);
+        if (server.verbose) {
+            char *client_ip = inet_ntoa(connection->client_addr.sin_addr);
+            printf("Client IP address: %s\n", client_ip);
+            // printf("Established connection with %s (%s)\n", hostp->h_name,
+            //        hostaddrp);
+        }
         // Call the request handler
         while (!stop_server) {
             server.handle_client(connection);
@@ -212,29 +213,30 @@ connection_t *connect_to_hostname(char *host, int port) {
     // Convert the request host to an IP address
     char ipstr[INET_ADDRSTRLEN];
     hostname_to_ip(host, ipstr, INET_ADDRSTRLEN);
+    DEBUG_PRINT("Host: %s, IP: %s\n", host, ipstr);
     // Set the server address to the IP address
     if (inet_pton(AF_INET, ipstr, &client_addr.sin_addr) <= 0) {
         fprintf(stderr, "Invalid server address: %s\n", ipstr);
         return NULL;
     }
-    memcpy(&connection->client_addr, &client_addr, sizeof(client_addr));
+    memcpy((&connection->client_addr), &client_addr, sizeof(client_addr));
     connection->client_addr_len = client_addr_len;
     // Get the servers's address
     char           *hostaddrp;
     struct hostent *hostp;
     // TODO: Wat?? Make this more readable using more stack variables
     hostp = gethostbyaddr(
-        (const char *)&((struct sockaddr_in *)&connection->client_addr)
+        (const char *)&((struct sockaddr_in *)(&connection->client_addr))
             ->sin_addr.s_addr,
-        sizeof(
-            ((struct sockaddr_in *)&connection->client_addr)->sin_addr.s_addr),
+        sizeof(((struct sockaddr_in *)(&connection->client_addr))
+                   ->sin_addr.s_addr),
         AF_INET);
     if (hostp == NULL) {
-        fprintf(stderr, "ERROR on gethostbyaddr");
+        fprintf(stderr, "ERROR on gethostbyaddr\n");
         exit(-3);
     }
     hostaddrp =
-        inet_ntoa(((struct sockaddr_in *)&connection->client_addr)->sin_addr);
+        inet_ntoa(((struct sockaddr_in *)(&connection->client_addr))->sin_addr);
     if (hostaddrp == NULL) {
         fprintf(stderr, "ERROR on inet_ntoa\n");
         exit(-3);
@@ -247,7 +249,7 @@ connection_t *connect_to_hostname(char *host, int port) {
     // Set up the connection struct
     strncpy(connection->client_ip, hostaddrp, INET_ADDRSTRLEN);
     memcpy(&connection->host, hostp, sizeof(struct hostent));
-    memcpy(&connection->client_addr, &client_addr, sizeof(client_addr));
+    memcpy((&connection->client_addr), &client_addr, sizeof(client_addr));
     connection->client_addr_len = client_addr_len;
 
     return connection;

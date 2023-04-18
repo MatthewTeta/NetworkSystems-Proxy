@@ -20,7 +20,7 @@
 #include "server.h"
 
 #define REQUEST_URI_REGEX                                                      \
-    "^(\\w+)\\s+(http[s]?://)?([^/:]+)(:[\\d]+)?(.*)\\s+(HTTP/[\\d\\.]+)"
+    "^(\\w+)\\s+(http[s]?://)?([^/:]+)?(:[\\d]+)?(.*)\\s+(HTTP/[\\d\\.]+)"
 
 /**
  * @brief Request structure

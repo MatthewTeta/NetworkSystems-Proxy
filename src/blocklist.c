@@ -40,6 +40,8 @@ blocklist_t *blocklist_init(const char *filepath) {
     list->count       = 0;
     list->list        = malloc(sizeof(blocklist_t *) * list->size);
 
+    printf("INFO: Initializing blocklist.\n");
+
     // Open the blocklist file
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
