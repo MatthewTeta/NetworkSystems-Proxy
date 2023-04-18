@@ -67,6 +67,25 @@ void server_start(server_config_t server_config) {
     stop_server = 0;
     // Accept connections
     while (!stop_server) {
+        // if (child_pids != NULL) {
+        //     // Check if any child processes have exited
+        //     pid_list_t *pid_list = child_pids;
+        //     while (pid_list != NULL) {
+        //         pid_t pid = pid_list->pid;
+        //         int   status;
+        //         if (waitpid(pid, &status, WNOHANG) > 0) {
+        //             // Child process has exited
+        //             DEBUG_PRINT("Child process %d has exited.\n", pid);
+        //             // Remove the child process from the list
+        //             pid_list_t *next = pid_list->next;
+        //             pid_list_remove(child_pids, pid);
+        //             pid_list = next;
+        //         } else {
+        //             // Child process has not exited
+        //             pid_list = pid_list->next;
+        //         }
+        //     }
+        // }
         DEBUG_PRINT("Waiting for connection\n");
         // Accept the connection
         connection_t *connection = malloc(sizeof(connection_t));

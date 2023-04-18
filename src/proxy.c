@@ -151,7 +151,13 @@ void handle_client(connection_t *connection) {
         if (request == NULL) {
             exit_child(connection);
         }
-        if (strcmp(request->method, )
+        if (strcmp(request->method, "GET") != 0) {
+            // Send a 501 Not Implemented response
+            DEBUG_PRINT("Error: Method is not implemented: %s\n",
+                        request->method);
+            // response_send(NULL, connection);
+            continue;
+        }
 
         connection_keep_alive = request_is_connection_keep_alive(request);
         DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);

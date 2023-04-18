@@ -231,7 +231,11 @@ http_headers_t *http_headers_parse(http_message_t *message) {
         }
         char *line_copy = strdup(line); // make a copy of line
         char *key       = strtok(line_copy, ":");
-        char *val       = strtok(NULL, ":");
+        char *val       = strtok(NULL, "");
+        // remove leading whitespace from val
+        while (isspace(*val)) {
+            val++;
+        }
         if (key == NULL || val == NULL) {
             // Malformed header
             DEBUG_PRINT("Malformed header: %s\n", line);
