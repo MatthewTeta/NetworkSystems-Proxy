@@ -17,6 +17,7 @@
 #include "debug.h"
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
 
 http_message_t *http_message_recv(connection_t *connection) {
     http_message_t *message = malloc(sizeof(http_message_t));
@@ -39,14 +40,20 @@ http_message_t *http_message_recv(connection_t *connection) {
     int           rv;
     // Use sendfile to copy the message into the stream
     while (!header_complete) {
-        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+        if (message->message_size > HTTP_MESSAGE_MAX_HEADER_SIZE) {
+            // Message is too large, close the connection
+            DEBUG_PRINT("Message is too large, closing connection\n");
+            http_message_free(message);
+            return NULL;
+        }
+        // DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
         message->message_size += MESSAGE_CHUNK_SIZE;
-        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+        // DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
         if (message->message == NULL)
             message->message = malloc(message->message_size);
         else
             message->message = realloc(message->message, message->message_size);
-        DEBUG_PRINT("Waiting for data...\n");
+        // DEBUG_PRINT("Waiting for data...\n");
         // Set up a poll to timeout if we don't get any data
         // Poll the socket for data until we get something or a
         // timeout is recieved
@@ -61,11 +68,13 @@ http_message_t *http_message_recv(connection_t *connection) {
             // received any data If we have received data, continue
             // processing the message If we have not received any
             // data, exit the child process
-            if (bytes_read > 0)
-                break;
-            DEBUG_PRINT("Poll failed, exiting child process\n");
-            http_message_free(message);
-            return NULL;
+            if (bytes_read == 0) {
+                DEBUG_PRINT("Poll failed, exiting child process\n");
+                http_message_free(message);
+                return NULL;
+            } else {
+                DEBUG_PRINT("Poll failed, but we have received data\n");
+            }
         } else if (rv == 0) {
             // Timeout -> close connection
             DEBUG_PRINT("Timeout occured in http_message_recv()\n");
@@ -76,7 +85,7 @@ http_message_t *http_message_recv(connection_t *connection) {
         bytes_read =
             recv(connection->clientfd, message->message + message->message_len,
                  MESSAGE_CHUNK_SIZE, 0);
-        DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
+        // DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
         if (bytes_read == 0) {
             // client socket closed
             DEBUG_PRINT("Client socket closed.\n");
@@ -92,23 +101,20 @@ http_message_t *http_message_recv(connection_t *connection) {
         // DEBUG_PRINT("Writing %ld bytes to stream.\n", bytes_read);
         // fwrite(recv_buffer, sizeof(char), bytes_read, message->fp) c;
         // DEBUG_PRINT("Checking if header is complete.\n");
-        char *rv = message->body = strstr(message->message, "\r\n\r\n");
-        DEBUG_PRINT("strstr \\r\\n\\r\\n RV: %p\n", rv);
-        if ((rv) != NULL) {
+
+        // Slight optimization causes the strstr to only search the last 4 bytes
+        // before
+        size_t search_start = max(0, message->message_len - 4);
+        message->body = strstr(message->message + search_start, "\r\n\r\n");
+        // DEBUG_PRINT("strstr \\r\\n\\r\\n RV: %p\n", rv);
+        if (message->body != NULL) {
             message->body += 4;
             message->header_len = message->body - message->message;
-            header_complete     = 1;
+            // Exit hte loop
+            header_complete = 1;
         }
     }
-    if (!header_complete) {
-        DEBUG_PRINT("Header is not complete.\n");
-        // Send a 400 Bad message response
-        DEBUG_PRINT("Sending 400 Bad message response.\n");
-        // response_send(connection->clientfd, 400, "Bad message", NULL, 0);
-        http_message_free(message);
-        return NULL;
-    }
-    DEBUG_PRINT("HEADER_COMPLETE\n");
+    // DEBUG_PRINT("HEADER_COMPLETE\n");
     // At this point, we have recieved the entire header and a partial body.
     // We need to parse the header to get the content length, and then read
     // the rest of the body.
@@ -124,11 +130,11 @@ http_message_t *http_message_recv(connection_t *connection) {
 
     // Get the body length
     char *body_length = http_headers_get(message->headers, "Content-Length");
-    DEBUG_PRINT("Body length: %s\n", body_length);
+    // DEBUG_PRINT("Body length: %s\n", body_length);
     if (body_length != NULL) {
         message->body_len = atoi(body_length);
     }
-    DEBUG_PRINT("Body length: %lu\n", message->body_len);
+    // DEBUG_PRINT("Body length: %lu\n", message->body_len);
     // TODO: Check if the body is too long
     // if (message->body_len > HTTP_MAX_BODY_LEN) {
     //     DEBUG_PRINT("Body is too long.\n");
@@ -141,25 +147,29 @@ http_message_t *http_message_recv(connection_t *connection) {
     if (message->body_len > 0) {
         message->message_size +=
             ((message->body_len / MESSAGE_CHUNK_SIZE) + 1) * MESSAGE_CHUNK_SIZE;
+        if (message->body_len % MESSAGE_CHUNK_SIZE == 0)
+            message->message_size -= MESSAGE_CHUNK_SIZE;
         DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
         message->message = realloc(message->message, message->message_size);
+        memset(message->message + message->message_len, 0,
+               message->message_size - message->message_len);
     }
 
     if (message->body_len > 0) {
-        int body_length = message->message_len - message->body_len;
-        if (body_length < message->body_len) {
-            DEBUG_PRINT("Reading the rest of the body.\n");
-        } else if (body_length > message->body_len) {
-            DEBUG_PRINT("Body is longer than content length.\n");
-        }
-        while (body_length < message->body_len) {
+        int read_remaining =
+            message->body_len + message->header_len - message->message_len;
+        // if (read_remaining < message->body_len) {
+        //     DEBUG_PRINT("Reading the rest of the body.\n");
+        // } else if (read_remaining > message->body_len) {
+        //     DEBUG_PRINT("Body is longer than content length.\n");
+        // }
+        while (read_remaining) {
             // Use recv to copy the message into the stream
-            size_t recv_len =
-                min(MESSAGE_CHUNK_SIZE, message->body_len - body_length);
+            size_t recv_len = min(MESSAGE_CHUNK_SIZE, read_remaining);
             bytes_read =
                 recv(connection->clientfd,
                      message->message + message->message_len, recv_len, 0);
-            DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
+            // DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
             if (bytes_read == 0) {
                 DEBUG_PRINT("Client socket closed.\n");
                 http_message_free(message);
@@ -170,7 +180,7 @@ http_message_t *http_message_recv(connection_t *connection) {
                 return NULL;
             }
             message->message_len += bytes_read;
-            body_length += bytes_read;
+            read_remaining -= bytes_read;
         }
         // fflush(message->fp);
     }
@@ -318,7 +328,7 @@ void http_headers_set(http_headers_t *headers, char *key, char *value) {
     }
     http_header_t *header = headers->headers[headers->count] =
         malloc(sizeof(http_header_t));
-    DEBUG_PRINT("Allocated header at %p\n", header);
+    // DEBUG_PRINT("Allocated header at %p\n", header);
     header->key                      = strdup(key);
     header->value                    = strdup(value);
     headers->headers[headers->count] = header;

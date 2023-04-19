@@ -1,21 +1,22 @@
 /**
  * @file IP.c
- * @brief IP contains helper functions for working with IP addresses and hostnames.
+ * @brief IP contains helper functions for working with IP addresses and
+ * hostnames.
  * @author Matthew Teta (matthew.teta@colorado.edu)
  * @version 0.1
  * @date 2023-04-14
- * 
+ *
  * @copyright Copyright (c) 2023
-*/
+ */
 
 #include "IP.h"
 
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <regex.h>
-#include <arpa/inet.h>
-#include <netdb.h>
 
 #include "debug.h"
 
@@ -29,35 +30,28 @@ regex_t ip_regex, host_regex;
  * @param ipstr IP string (output)
  * @param ipstr_len Length of ipstr buffer
  */
-void hostname_to_ip(const char* hostname, char *ipstr, size_t ipstr_len)
-{
+void hostname_to_ip(const char *hostname, char *ipstr, size_t ipstr_len) {
     struct in_addr ipv4addr;
     memset(ipstr, 0, ipstr_len);
 
     // Check if input is an IP address
-    if (inet_pton(AF_INET, hostname, &ipv4addr) == 1)
-    {
+    if (inet_pton(AF_INET, hostname, &ipv4addr) == 1) {
         // Convert IP address string to presentation format and return it
-        if (inet_ntop(AF_INET, &ipv4addr, ipstr, NI_MAXHOST) == NULL)
-        {
+        if (inet_ntop(AF_INET, &ipv4addr, ipstr, ipstr_len) == NULL) {
             return;
         }
-    }
-    else
-    {
+    } else {
         // Resolve hostname to IP address and return it
-        struct hostent *he;
+        struct hostent  *he;
         struct in_addr **addr_list;
 
-        if ((he = gethostbyname(hostname)) == NULL)
-        {
+        if ((he = gethostbyname(hostname)) == NULL) {
             return;
         }
 
         addr_list = (struct in_addr **)he->h_addr_list;
 
-        for (int i = 0; addr_list[i] != NULL; i++)
-        {
+        for (int i = 0; addr_list[i] != NULL; i++) {
             strcpy(ipstr, inet_ntoa(*addr_list[i]));
         }
     }

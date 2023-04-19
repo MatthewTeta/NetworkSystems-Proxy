@@ -152,10 +152,8 @@ void handle_client(connection_t *connection) {
             exit_child(connection);
         }
         if (strcmp(request->method, "GET") != 0) {
-            // Send a 501 Not Implemented response
-            DEBUG_PRINT("Error: Method is not implemented: %s\n",
-                        request->method);
-            // response_send(NULL, connection);
+            // Tunnel the request to the server
+
             continue;
         }
 
@@ -173,9 +171,11 @@ void handle_client(connection_t *connection) {
             exit_child(connection);
         }
 
+        // Get a hash key from the request
+        // ... 
         // Get the response from the cache
-        // response_t *response = (response_t *)cache_get(request,
-        // proxy_cache_miss_resolver);
+        response_t *response =
+            (response_t *)cache_get(request, proxy_cache_miss_resolver);
         response_t *response = NULL;
 
         // If the response is NULL, then the response is not in the cache

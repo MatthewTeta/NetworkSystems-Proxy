@@ -22,7 +22,7 @@ request_t *request_recv(connection_t *connection) {
     request_t *request = malloc(sizeof(request_t));
     memset(request, 0, sizeof(request_t));
     request->message = http_message_recv(connection);
-    DEBUG_PRINT("http_message_recv complete\n");
+    // DEBUG_PRINT("http_message_recv complete\n");
     if (request->message == NULL) {
         request_free(request);
         return NULL;
@@ -72,7 +72,7 @@ int request_header_parse(request_t *request) {
         return -1;
     }
     DEBUG_PRINT("HEADER_LINE: %s\n", message->header_line);
-    status = regexec(&uri_regex, message->header_line, 7, uri_matches, 0);
+    status = regexec(&uri_regex, message->header_line, 8, uri_matches, 0);
     if (status != 0) {
         char error_message[1024];
         regerror(status, &uri_regex, error_message, 1024);
@@ -82,6 +82,7 @@ int request_header_parse(request_t *request) {
     // Get the method
     request->method = strndup(message->header_line + uri_matches[1].rm_so,
                               uri_matches[1].rm_eo - uri_matches[1].rm_so);
+    DEBUG_PRINT(" -- METHOD: %s\n", request->method);
     // Get http vs https
     if (uri_matches[2].rm_so != -1) {
         if (strncmp(message->header_line + uri_matches[2].rm_so, "https", 5) ==
@@ -89,25 +90,33 @@ int request_header_parse(request_t *request) {
             request->https = 1;
         }
     }
+    DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
     // Get the host
     if (uri_matches[3].rm_so != -1) {
         request->host = strndup(message->header_line + uri_matches[3].rm_so,
                                 uri_matches[3].rm_eo - uri_matches[3].rm_so);
     }
+    DEBUG_PRINT(" -- HOST: %s\n", request->host);
     // Get the port
-    if (uri_matches[4].rm_so != -1) {
-        char *port_str =
-            strndup(message->header_line + uri_matches[4].rm_so + 1,
-                    uri_matches[4].rm_eo - uri_matches[4].rm_so - 1);
-        request->port = atoi(port_str);
+    if (uri_matches[5].rm_so != -1) {
+        char *port_str = strndup(message->header_line + uri_matches[5].rm_so,
+                                 uri_matches[5].rm_eo - uri_matches[5].rm_so);
+        request->port  = atoi(port_str);
         free(port_str);
     }
+    DEBUG_PRINT(" -- PORT: %d\n", request->port);
     // Get the uri
-    request->uri = strndup(message->header_line + uri_matches[5].rm_so,
-                           uri_matches[5].rm_eo - uri_matches[5].rm_so);
-    // Get the http version
-    request->version = strndup(message->header_line + uri_matches[6].rm_so,
+    if (uri_matches[6].rm_so != -1) {
+        request->uri = strndup(message->header_line + uri_matches[6].rm_so,
                                uri_matches[6].rm_eo - uri_matches[6].rm_so);
+    }
+    DEBUG_PRINT(" -- URI: %s\n", request->uri);
+    // Get the http version
+    if (uri_matches[7].rm_so != -1) {
+        request->version = strndup(message->header_line + uri_matches[7].rm_so,
+                                   uri_matches[7].rm_eo - uri_matches[7].rm_so);
+    }
+    DEBUG_PRINT(" -- VERSION: %s\n", request->version);
 
     // Get the Host header
     char *host = http_headers_get(message->headers, "Host");

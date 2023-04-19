@@ -15,7 +15,7 @@
 #include "http.h"
 #include "request.h"
 
-#define RESPONSE_STATUS_REGEX "^(HTTP/[\\d\\.]+)?\\s+(\\d+)\\s+(.*)"
+#define RESPONSE_STATUS_REGEX "(HTTP/[0-9]+\\.[0-9]+)?\\s+([0-9]+)\\s+(.*)"
 
 /**
  * @brief Response structure

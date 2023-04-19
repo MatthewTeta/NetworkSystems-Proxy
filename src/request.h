@@ -19,8 +19,9 @@
 #include "http.h"
 #include "server.h"
 
-#define REQUEST_URI_REGEX                                                      \
-    "^(\\w+)\\s+(http[s]?://)?([^/:]+)?(:[\\d]+)?(.*)\\s+(HTTP/[\\d\\.]+)"
+// #define REQUEST_URI_REGEX                                                      
+//     "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:[\\d]+)?([^\\s]*)?\\s+(HTTP/[\\d\\.]+)"
+#define REQUEST_URI_REGEX "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^\\s]*)?\\s+(HTTP\\/[0-9\\]+\\.?[0-9]+)"
 
 /**
  * @brief Request structure

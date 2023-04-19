@@ -39,6 +39,7 @@ void server_start(server_config_t server_config) {
         exit(1);
     }
     DEBUG_PRINT("Created socket\n");
+#ifdef DEBUG
     // Set the socket options to reuse the address
     int opt = 1;
     if (setsockopt(server.serverfd, SOL_SOCKET, SO_REUSEADDR, &opt,
@@ -47,6 +48,7 @@ void server_start(server_config_t server_config) {
         exit(1);
     }
     DEBUG_PRINT("Set socket options: port %d\n", server.port);
+#endif
     // Bind the socket to the port
     struct sockaddr_in server_addr;
     server_addr.sin_family      = AF_INET;
@@ -113,7 +115,7 @@ void server_start(server_config_t server_config) {
             } else {
                 pid_list_append(child_pids, pid);
             }
-            pid_list_print(child_pids);
+            // pid_list_print(child_pids);
             close(connection->clientfd);
             continue;
         }

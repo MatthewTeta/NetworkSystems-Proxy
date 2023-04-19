@@ -16,9 +16,11 @@
 
 #include "server.h"
 
-#define HTTP_HEADER_COUNT_DEFAULT 16
-#define MESSAGE_CHUNK_SIZE        1024
-#define KEEP_ALIVE_TIMEOUT_MS     10000
+#define HTTP_HEADER_COUNT_DEFAULT    16
+#define MESSAGE_CHUNK_SIZE           1024
+#define KEEP_ALIVE_TIMEOUT_MS        10000
+#define HTTP_MESSAGE_MAX_HEADER_SIZE 8192
+#define HTTP_MESSAGE_MAX_BODY_SIZE   (4 * 1024 * 1024 * 1024) // 4 GB
 
 /**
  * @brief HTTP header structure
