@@ -30,21 +30,17 @@
 #include "server.h"
 
 // Global variables
-char        *cache_path;
-char        *blocklist_path;
 int          port;
-int          cache_ttl;
-int          prefetch_depth;
 int          verbose;
-int          serverfd;
 int          proxyfd;
 blocklist_t *blocklist;
+cache_t     *cache;
 
 // Function prototypes
 void handle_client(connection_t *connection);
 // void *handle_response(void *arg);
 // void *handle_prefetch(void *arg);
-void proxy_cache_miss_resolver(char *path, void *arg);
+void proxy_cache_miss_resolver(cache_entry_t *entry, void *arg);
 
 /**
  * @brief Initialize the proxy server
@@ -62,12 +58,8 @@ void proxy_init(char *_cache_path, char *_blocklist_path, int _port,
         printf("Initializing the proxy server\n");
     }
     // Set the global variables
-    cache_path     = _cache_path;
-    blocklist_path = _blocklist_path;
-    port           = _port;
-    cache_ttl      = _cache_ttl;
-    prefetch_depth = _prefetch_depth;
-    verbose        = _verbose;
+    port    = _port;
+    verbose = _verbose;
 
     // Initialize the blocklist
     blocklist = blocklist_init(_blocklist_path);
@@ -76,7 +68,7 @@ void proxy_init(char *_cache_path, char *_blocklist_path, int _port,
     }
 
     // Initialize the cache
-    // cache_init(cache_path, cache_ttl, verbose);
+    cache = cache_init(_cache_path, _cache_ttl, _verbose);
 }
 
 /**
@@ -108,7 +100,7 @@ void proxy_stop() {
     server_stop();
 
     // Destroy the cache
-    // cache_destroy();
+    cache_free(cache);
 
     // Destroy the blocklist
     blocklist_free(blocklist);
@@ -139,7 +131,10 @@ void handle_client(connection_t *connection) {
         printf("Handling a new client connection\n");
     }
     // Child process
-    int connection_keep_alive = 1;
+    int             connection_keep_alive = 1;
+    http_message_t *message;
+    request_t      *request;
+    response_t     *response;
 
     // Get the time the connection was accepted
     struct timeval time_accept;
@@ -147,18 +142,12 @@ void handle_client(connection_t *connection) {
 
     while (connection_keep_alive) {
         // Recv the request from the client
-        request_t *request = request_recv(connection);
+        message = http_message_recv(connection);
+        request = request_parse(message);
         if (request == NULL) {
+            DEBUG_PRINT("Error: Failed to parse the request\n");
             exit_child(connection);
         }
-        if (strcmp(request->method, "GET") != 0) {
-            // Tunnel the request to the server
-
-            continue;
-        }
-
-        connection_keep_alive = request_is_connection_keep_alive(request);
-        DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
 
         // Check if the request is in the blocklist
         if (blocklist_check(blocklist, request->host)) {
@@ -171,22 +160,12 @@ void handle_client(connection_t *connection) {
             exit_child(connection);
         }
 
-        // Get a hash key from the request
-        // ... 
-        // Get the response from the cache
-        response_t *response =
-            (response_t *)cache_get(request, proxy_cache_miss_resolver);
-        response_t *response = NULL;
+        connection_keep_alive = request_is_connection_keep_alive(request);
+        DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
 
-        // If the response is NULL, then the response is not in the cache
-        if (response == NULL) {
-            // Get the response from the server
-            response = response_recv(request);
-
-            // cache_save(request, response);
-
-            // If the response is NULL, then the server is down or something
-            // failed
+        if (strcmp(request->method, "GET") != 0) {
+            // Tunnel the request to the server
+            response = response_fetch(request);
             if (response == NULL) {
                 // Send a 504 Gateway Timeout response
                 // response_send(NULL, clientfd);
@@ -194,12 +173,38 @@ void handle_client(connection_t *connection) {
                     "Error: Failed to get the response from the server\n");
                 exit_child(connection);
             }
-        }
-        // Send the response to the client
-        if (0 != response_send(response, connection)) {
-            fprintf(stderr,
-                    "Error: Failed to send the response to the client\n");
-            exit_child(connection);
+            // Send the response to the client
+            if (0 != response_send(response, connection)) {
+                fprintf(stderr,
+                        "Error: Failed to send the response to the client\n");
+                exit_child(connection);
+            }
+        } else {
+            // Get a hash key from the request
+            char key[1024];
+            request_get_key(request, key);
+            char  *data = NULL;
+            size_t size = 0;
+            // Get the response from the cache
+            cache_get(cache, key, data, &size, proxy_cache_miss_resolver,
+                      request);
+            message  = http_message_create(data, size);
+            response = response_parse(message);
+
+            // If the response is NULL, then the response is not in the cache
+            if (response == NULL) {
+                // Send a 504 Gateway Timeout response
+                // response_send(NULL, clientfd);
+                DEBUG_PRINT(
+                    "Error: Failed to get the response from the cache\n");
+                exit_child(connection);
+            }
+            // Send the response to the client
+            if (0 != response_send(response, connection)) {
+                fprintf(stderr,
+                        "Error: Failed to send the response to the client\n");
+                exit_child(connection);
+            }
         }
 
         // Free the request
@@ -215,10 +220,37 @@ void handle_client(connection_t *connection) {
 /**
  * @brief Handle not found in cache
  *
- * @param arg Request
+ * @param arg Request to fetch the response
  */
-void proxy_cache_miss_resolver(char *path, void *arg) {
+void proxy_cache_miss_resolver(cache_entry_t *entry, void *arg) {
     DEBUG_PRINT("Resolving cache miss\n");
-    // request_t *request = (request_t *)arg;
-    // response = response_recv(request);
+    request_t *request = (request_t *)arg;
+    // Open a connection to the server
+    connection_t *connection =
+        connect_to_hostname(request->host, request->port);
+    if (connection == NULL) {
+        DEBUG_PRINT("Error: Failed to connect to the server\n");
+        return;
+    }
+    // Send the request to the server
+    if (0 != request_send(request, connection)) {
+        DEBUG_PRINT("Error: Failed to send the request to the server\n");
+        return;
+    }
+    // Recv the response from the server
+    http_message_t *message = http_message_recv(connection);
+
+    // Before parsing the response (further), cache it
+    char  *buffer;
+    size_t size;
+    http_get_message_buffer(message, &buffer, &size);
+    cache_set(entry, buffer, size);
+
+    response_t *response = response_parse(message);
+    if (response == NULL) {
+        DEBUG_PRINT("Error: Failed to parse the response from the server\n");
+        return;
+    }
+    // Close the connection to the server
+    close_connection(connection);
 }

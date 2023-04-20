@@ -275,3 +275,42 @@ connection_t *connect_to_hostname(char *host, int port) {
 
     return connection;
 }
+
+/**
+ * @brief Send a message to a connection (guarentees all bytes are sent)
+ *
+ * @param connection Connection
+ * @param msg Message to send
+ * @param msg_len Length of message
+ *
+ * @return ssize_t Number of bytes sent or -1 on error
+ */
+ssize_t send_to_connection(connection_t *connection, char *msg,
+                           size_t msg_len) {
+    if (connection == NULL) {
+        fprintf(stderr, "Error: Connection is NULL\n");
+        return -1;
+    }
+    if (msg == NULL) {
+        fprintf(stderr, "Error: Message is NULL\n");
+        return -1;
+    }
+    if (msg_len == 0) {
+        fprintf(stderr, "Error: Message length is 0\n");
+        return -1;
+    }
+    ssize_t bytes_sent = 0;
+    while (bytes_sent < msg_len) {
+        ssize_t sent = send(connection->clientfd, msg + bytes_sent,
+                            msg_len - bytes_sent, 0);
+        if (sent < 0) {
+            fprintf(stderr, "Error: Failed to send message\n");
+            return -1;
+        }
+        if (bytes_sent == 0) {
+            DEBUG_PRINT("Sent 0 bytes in send_to_connection... \n");
+        }
+        bytes_sent += sent;
+    }
+    return bytes_sent;
+}

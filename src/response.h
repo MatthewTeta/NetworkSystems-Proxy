@@ -34,15 +34,25 @@ typedef struct response {
  * @param request Request to send
  * @return response_t* Response from server
  */
-response_t *response_recv(request_t *request);
+response_t *response_fetch(request_t *request);
 
 /**
- * @brief Parse a response
+ * @brief Create a response
  *
- * @param response Response to parse
+ * @param status_code Status code
+ * @param version Version
+ * @return response_t* Response
+ */
+response_t *response_create(int status_code, char *version);
+
+/**
+ * @brief Send the response to the client
+ *
+ * @param response Response to send
+ * @param connection Connection
  * @return int 0 on success, -1 on failure
  */
-int response_header_parse(response_t *response);
+int response_send(response_t *response, connection_t *connection);
 
 /**
  * @brief Free a response
@@ -52,12 +62,20 @@ int response_header_parse(response_t *response);
 void response_free(response_t *response);
 
 /**
- * @brief Send a response to a client
+ * @brief Parse a response
  *
- * @param response Response to send
- * @param clientfd Client socket
+ * @param request Request to parse
  * @return int 0 on success, -1 on failure
  */
-int response_send(response_t *response, connection_t *connection);
+int response_header_parse(response_t *response);
+
+/**
+ * @brief Create a response from a message
+ *
+ * @param message Message
+ *
+ * @return response_t* Response
+ */
+response_t *response_parse(http_message_t *message);
 
 #endif

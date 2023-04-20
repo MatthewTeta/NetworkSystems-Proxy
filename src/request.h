@@ -19,9 +19,11 @@
 #include "http.h"
 #include "server.h"
 
-// #define REQUEST_URI_REGEX                                                      
+// #define REQUEST_URI_REGEX
 //     "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:[\\d]+)?([^\\s]*)?\\s+(HTTP/[\\d\\.]+)"
-#define REQUEST_URI_REGEX "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^\\s]*)?\\s+(HTTP\\/[0-9\\]+\\.?[0-9]+)"
+#define REQUEST_URI_REGEX                                                      \
+    "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^\\s]*)?\\s+(HTTP\\/"      \
+    "[0-9\\]+\\.?[0-9]+)"
 
 /**
  * @brief Request structure
@@ -44,6 +46,16 @@ typedef struct request {
  * @return request_t* Request
  */
 request_t *request_recv(connection_t *connection);
+
+/**
+ * @brief Send a request to the server. Prepares the http_message_t with the
+ * header line, host header.
+ *
+ * @param request Request to send
+ * @param connection Connection
+ * @return int 0 on success, -1 on failure
+ */
+int request_send(request_t *request, connection_t *connection);
 
 /**
  * @brief Free a request
@@ -72,8 +84,16 @@ int request_is_connection_keep_alive(request_t *request);
  * cacheable.
  *
  * @param request
- * @param key
+ * @param key Output key
  */
 void request_get_key(request_t *request, char *key);
+
+/**
+ * @brief Parse a request from a message
+ *
+ * @param message Message to parse
+ * @return request_t* Request
+ */
+request_t *request_parse(http_message_t *message);
 
 #endif

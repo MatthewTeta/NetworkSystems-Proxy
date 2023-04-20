@@ -19,6 +19,70 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+// Private structs
+
+/**
+ * @brief HTTP header structure
+ *
+ */
+typedef struct http_header {
+    char *key;   // Header key
+    char *value; // Header value
+} http_header_t;
+
+/**
+ * @brief HTTP headers structure
+ *
+ */
+typedef struct http_headers {
+    int             size;    // Size of array
+    int             count;   // Number of headers in array
+    http_header_t **headers; // Array of headers
+} http_headers_t;
+
+// Private functions
+void http_headers_parse(http_message_t *message);
+int  http_headers_send(http_headers_t *headers, connection_t *connection);
+void http_message_header_set_(http_message_t *message, char *key, char *value,
+                              int search);
+
+/**
+ * @brief HTTP message structure
+ *
+ * @note This structure is used for both requests and responses
+ */
+struct http_message {
+    char           *message;      // message buffer
+    size_t          message_size; // message buffer size
+    size_t          message_len;  // message string length
+    char           *header_line;  // message line
+    size_t          header_len;   // message header length
+    char           *body;         // message body
+    size_t          body_len;     // message body length
+    http_headers_t *headers;      // message headers
+};
+
+// Private functions
+void http_headers_free(http_headers_t *headers);
+
+// Global functions
+
+/**
+ * @brief Create a new HTTP message
+ *
+ * @param data Message data
+ * @param size Message size
+ * @return http_message_t* HTTP message
+ */
+http_message_t *http_message_create(char *data, size_t size) {
+    http_message_t *message = malloc(sizeof(http_message_t));
+    memset(message, 0, sizeof(http_message_t));
+    message->message      = data;
+    message->message_size = size;
+    message->message_len  = size;
+    return message;
+}
+
 http_message_t *http_message_recv(connection_t *connection) {
     http_message_t *message = malloc(sizeof(http_message_t));
     memset(message, 0, sizeof(http_message_t));
@@ -119,7 +183,7 @@ http_message_t *http_message_recv(connection_t *connection) {
     // We need to parse the header to get the content length, and then read
     // the rest of the body.
     // Parse the message
-    message->headers = http_headers_parse(message);
+    http_headers_parse(message);
     if (message->headers == NULL) {
         DEBUG_PRINT("Error parsing message header.\n");
         // Send a 400 Bad message response
@@ -129,7 +193,7 @@ http_message_t *http_message_recv(connection_t *connection) {
     }
 
     // Get the body length
-    char *body_length = http_headers_get(message->headers, "Content-Length");
+    char *body_length = http_message_header_get(message, "Content-Length");
     // DEBUG_PRINT("Body length: %s\n", body_length);
     if (body_length != NULL) {
         message->body_len = atoi(body_length);
@@ -189,6 +253,28 @@ http_message_t *http_message_recv(connection_t *connection) {
 }
 
 /**
+ * @brief Send an http message to the socket including the header line, headers,
+ * and body. This will reconstruct the message from the headers and body.
+ *
+ * @param message The message to send
+ */
+int http_message_send(http_message_t *message, connection_t *connection) {
+    if (message == NULL || message->headers == NULL) {
+        return -1;
+    }
+    // Send the header line
+    send_to_connection(connection, message->header_line,
+                       strlen(message->header_line));
+    // Send the headers
+    http_headers_send(message->headers, connection);
+    // Send the body
+    if (message->body_len > 0) {
+        send_to_connection(connection, message->body, message->body_len);
+    }
+    return 0;
+}
+
+/**
  * @brief Send an HTTP message to a connection
  *
  * @param message HTTP message
@@ -200,6 +286,7 @@ void http_message_free(http_message_t *message) {
     // if (message->fp != NULL) {
     //     fclose(message->fp);
     // }
+    free(message->header_line);
     if (message->headers != NULL) {
         http_headers_free(message->headers);
     }
@@ -209,6 +296,8 @@ void http_message_free(http_message_t *message) {
     free(message);
 }
 
+// Private functions
+
 /**
  * @brief Parse HTTP headers
  * @details Parses HTTP headers from a partial http message (body is not
@@ -217,10 +306,8 @@ void http_message_free(http_message_t *message) {
  * @param message HTTP message
  * @return http_headers_t* Parsed headers
  */
-http_headers_t *http_headers_parse(http_message_t *message) {
-    // Set the header line which will be skipped
-    message->header_line    = message->message;
-    http_headers_t *headers = malloc(sizeof(http_headers_t));
+void http_headers_parse(http_message_t *message) {
+    http_headers_t *headers = message->headers = malloc(sizeof(http_headers_t));
     headers->headers =
         malloc(sizeof(http_header_t *) * HTTP_HEADER_COUNT_DEFAULT);
     headers->size = HTTP_HEADER_COUNT_DEFAULT;
@@ -231,7 +318,8 @@ http_headers_t *http_headers_parse(http_message_t *message) {
         DEBUG_PRINT("Line %d: %s\n", i, line);
         if (i == 0) {
             // Skip the first line (request line)
-            line = strtok(NULL, "\r\n");
+            message->header_line = strdup(line);
+            line                 = strtok(NULL, "\r\n");
             i++;
             continue;
         }
@@ -251,18 +339,119 @@ http_headers_t *http_headers_parse(http_message_t *message) {
             DEBUG_PRINT("Malformed header: %s\n", line);
             free(line_copy); // free the copy of line
             http_headers_free(headers);
-            return NULL;
+            return;
             // continue;
         }
-        http_headers_set(headers, key, val);
+        DEBUG_PRINT("HEADER -- %s: %s\n", key, val);
+        http_message_header_set_(message, key, val, 0);
         free(line_copy); // free the copy of line
         line = strtok(NULL, "\r\n");
         i++;
     }
-
-    return headers;
 }
 
+/**
+ * @brief Set the header line from an HTTP message
+ *
+ * @param message HTTP message
+ * @return char* Header line
+ */
+void http_message_set_header_line(http_message_t *message, char *header_line) {
+    message->header_line = strdup(header_line);
+}
+
+/**
+ * @brief Get the header line from an HTTP message
+ *
+ * @param message HTTP message
+ * @return char* Header line
+ */
+char *http_message_get_header_line(http_message_t *message) {
+    return message->header_line;
+}
+
+/**
+ * @brief Set the body from an HTTP message
+ *
+ * @param message HTTP message
+ * @param body Body
+ * @param len Length of body
+ * @return char* Body
+ */
+void http_message_set_body(http_message_t *message, char *body, size_t len) {
+    message->body     = body;
+    message->body_len = len;
+}
+
+/**
+ * @brief Get the body from an HTTP message
+ *
+ * @param message HTTP message
+ * @return char* Body
+ */
+char *http_message_get_body(http_message_t *message) { return message->body; }
+
+/**
+ * @brief Get a header value from a list of headers
+ *
+ * @param headers Headers
+ * @param key Header key
+ * @return char* Header value
+ */
+char *http_message_header_get(http_message_t *message, char *key) {
+    // TODO: Use a hash table for faster lookup
+    // TODO: Convert to lowercase for case-insensitive comparison
+    http_headers_t *headers = message->headers;
+    for (int i = 0; i < headers->count; i++) {
+        if (strcmp(headers->headers[i]->key, key) == 0) {
+            return headers->headers[i]->value;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * @brief Set a header value in a list of headers
+ *
+ * @param headers Headers
+ * @param key Header key
+ * @param value Header value
+ */
+void http_message_header_set(http_message_t *message, char *key, char *value) {
+    http_message_header_set_(message, key, value, 1);
+}
+/** @param search Search for the header first */
+void http_message_header_set_(http_message_t *message, char *key, char *value,
+                              int search) {
+    http_headers_t *headers = message->headers;
+    // TODO: Use a hash table for faster lookup
+    // TODO: Convert to lowercase for case-insensitive comparison
+    if (search) {
+        // First search for the header
+        for (int i = 0; i < headers->count; i++) {
+            if (strcmp(headers->headers[i]->key, key) == 0) {
+                // Header already exists, just update the value
+                free(headers->headers[i]->value);
+                headers->headers[i]->value = strdup(value);
+                return;
+            }
+        }
+    }
+    // Header does not exist, add it
+    // Realloc for additional headers
+    if (headers->count >= headers->size) {
+        headers->size *= 2;
+        headers->headers =
+            realloc(headers->headers, sizeof(http_header_t *) * headers->size);
+    }
+    http_header_t *header = headers->headers[headers->count] =
+        malloc(sizeof(http_header_t));
+    // DEBUG_PRINT("Allocated header at %p\n", header);
+    header->key                      = strdup(key);
+    header->value                    = strdup(value);
+    headers->headers[headers->count] = header;
+    headers->count++;
+}
 /**
  * @brief Free HTTP headers
  *
@@ -282,55 +471,41 @@ void http_headers_free(http_headers_t *headers) {
 }
 
 /**
- * @brief Get a header value from a list of headers
+ * @brief Send HTTP headers
  *
- * @param headers Headers
- * @param key Header key
- * @return char* Header value
+ * @param headers Headers to send
+ * @param connection Connection to send headers on
+ *
+ * @return int 0 on success, -1 on error
  */
-char *http_headers_get(http_headers_t *headers, char *key) {
-    // TODO: Use a hash table for faster lookup
-    // TODO: Convert to lowercase for case-insensitive comparison
-    for (int i = 0; i < headers->count; i++) {
-        if (strcmp(headers->headers[i]->key, key) == 0) {
-            return headers->headers[i]->value;
+int http_headers_send(http_headers_t *headers, connection_t *connection) {
+    if (headers == NULL || connection == NULL) {
+        return -1;
+    }
+    int            rv;
+    char           s[1024];
+    http_header_t *h;
+    for (size_t i = 0; i < headers->count; i++) {
+        memset(s, 0, sizeof(s) * sizeof(char));
+        h = headers->headers[i];
+        sprintf(s, "%s: %s\r\n", h->key, h->value);
+        rv = send_to_connection(connection, s, strlen(s));
+        if (rv != 0) {
+            return rv;
         }
     }
-    return NULL;
+    return rv;
 }
 
 /**
- * @brief Set a header value in a list of headers
+ * @brief Get the HTTP data buffer from a message
  *
- * @param headers Headers
- * @param key Header key
- * @param value Header value
+ * @param message HTTP message
+ * @param data Data buffer (output)
+ * @param size Size of data buffer (output)
  */
-void http_headers_set(http_headers_t *headers, char *key, char *value) {
-    // TODO: Use a hash table for faster lookup
-    // TODO: Convert to lowercase for case-insensitive comparison
-    // // First search for the header
-    // for (int i = 0; i < headers->count; i++) {
-    //     if (strcmp(headers->headers[i]->key, key) == 0) {
-    //         // Header already exists, just update the value
-    //         free(headers->headers[i]->value);
-    //         headers->headers[i]->value = strdup(value);
-    //         return;
-    //     }
-    // }
-    // Header does not exist, add it
-    DEBUG_PRINT("Adding header: %s: %s\n", key, value);
-    // Realloc for additional headers
-    if (headers->count >= headers->size) {
-        headers->size *= 2;
-        headers->headers =
-            realloc(headers->headers, sizeof(http_header_t *) * headers->size);
-    }
-    http_header_t *header = headers->headers[headers->count] =
-        malloc(sizeof(http_header_t));
-    // DEBUG_PRINT("Allocated header at %p\n", header);
-    header->key                      = strdup(key);
-    header->value                    = strdup(value);
-    headers->headers[headers->count] = header;
-    headers->count++;
+void http_get_message_buffer(http_message_t *message, char **data,
+                                  size_t *size) {
+    *data = message->message;
+    *size = message->message_size;
 }

@@ -9,6 +9,8 @@
  *
  */
 
+// TOOD: Move some of this stuff to "client"
+
 #ifndef SERVER_H
 #define SERVER_H
 
@@ -74,5 +76,16 @@ void close_connection(connection_t *connection);
  * @return connection_t* Connection
  */
 connection_t *connect_to_hostname(char *host, int port);
+
+/**
+ * @brief Send a message to a connection (guarentees all bytes are sent)
+ * 
+ * @param connection Connection
+ * @param msg Message to send
+ * @param msg_len Length of message
+ * 
+ * @return ssize_t Number of bytes sent or -1 on error
+*/
+ssize_t send_to_connection(connection_t *connection, char *msg, size_t msg_len);
 
 #endif

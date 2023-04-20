@@ -22,41 +22,16 @@
 #define HTTP_MESSAGE_MAX_HEADER_SIZE 8192
 #define HTTP_MESSAGE_MAX_BODY_SIZE   (4 * 1024 * 1024 * 1024) // 4 GB
 
-/**
- * @brief HTTP header structure
- *
- */
-typedef struct http_header {
-    char *key;   // Header key
-    char *value; // Header value
-} http_header_t;
+typedef struct http_message http_message_t;
 
 /**
- * @brief HTTP headers structure
+ * @brief Create a new HTTP message
  *
+ * @param data Message data
+ * @param size Message size
+ * @return http_message_t* HTTP message
  */
-typedef struct http_headers {
-    int             size;    // Size of array
-    int             count;   // Number of headers in array
-    http_header_t **headers; // Array of headers
-} http_headers_t;
-
-/**
- * @brief HTTP message structure
- *
- * @note This structure is used for both requests and responses
- */
-typedef struct http_message {
-    connection_t   *connection;   // Connection
-    char           *message;      // message buffer
-    size_t          message_size; // message buffer size
-    size_t          message_len;  // message string length
-    char           *header_line;  // message line
-    http_headers_t *headers;      // message headers
-    size_t          header_len;   // message header length
-    char           *body;         // message body
-    size_t          body_len;     // message body length
-} http_message_t;
+http_message_t *http_message_create(char *data, size_t size);
 
 /**
  * @brief Recv an HTTP message from a connection
@@ -67,35 +42,62 @@ typedef struct http_message {
 http_message_t *http_message_recv(connection_t *connection);
 
 /**
- * @brief Send an HTTP message to a connection
+ * @brief Send an http message to the socket including the header line, headers,
+ * and body. This will reconstruct the message from the headers and body.
+ *
+ * @param message The message to send
+ */
+int http_message_send(http_message_t *message, connection_t *connection);
+
+/**
+ * @brief Free an HTTP message
  *
  * @param message HTTP message
  */
 void http_message_free(http_message_t *message);
 
 /**
- * @brief Parse HTTP headers
+ * @brief Set the header line from an HTTP message
  *
- * @param headers_str Headers string
- * @return http_headers_t* Parsed headers
+ * @param message HTTP message
+ * @return char* Header line
  */
-http_headers_t *http_headers_parse(http_message_t *message);
+void http_message_set_header_line(http_message_t *message, char *header_line);
 
 /**
- * @brief Free HTTP headers
+ * @brief Get the header line from an HTTP message
  *
- * @param headers Headers to free
+ * @param message HTTP message
+ * @return char* Header line
  */
-void http_headers_free(http_headers_t *headers);
+char *http_message_get_header_line(http_message_t *message);
 
 /**
- * @brief Get a header value from a list of headers
+ * @brief Set the body from an HTTP message
  *
- * @param headers Headers
+ * @param message HTTP message
+ * @param body Body
+ * @param len Length of body
+ * @return char* Body
+ */
+void http_message_set_body(http_message_t *message, char *body, size_t len);
+
+/**
+ * @brief Get the body from an HTTP message
+ *
+ * @param message HTTP message
+ * @return char* Body
+ */
+char *http_message_get_body(http_message_t *message);
+
+/**
+ * @brief Get a header value from a message
+ *
+ * @param message HTTP message
  * @param key Header key
- * @return char* Header value
+ * @return char* Header value or NULL if not found
  */
-char *http_headers_get(http_headers_t *headers, char *key);
+char *http_message_header_get(http_message_t *message, char *key);
 
 /**
  * @brief Set a header value in a list of headers
@@ -104,6 +106,16 @@ char *http_headers_get(http_headers_t *headers, char *key);
  * @param key Header key
  * @param value Header value
  */
-void http_headers_set(http_headers_t *headers, char *key, char *value);
+void http_message_header_set(http_message_t *message, char *key, char *value);
+
+/**
+ * @brief Get the HTTP data buffer from a message
+ *
+ * @param message HTTP message
+ * @param data Data buffer (output)
+ * @param size Size of data buffer (output)
+ */
+void http_get_message_buffer(http_message_t *message, char **data,
+                                  size_t *size);
 
 #endif
