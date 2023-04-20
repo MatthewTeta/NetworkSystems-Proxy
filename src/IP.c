@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include "debug.h"
 
@@ -31,32 +33,66 @@ regex_t ip_regex, host_regex;
  * @param ipstr_len Length of ipstr buffer
  */
 void hostname_to_ip(const char *hostname, char *ipstr, size_t ipstr_len) {
-    struct in_addr ipv4addr;
-    memset(ipstr, 0, ipstr_len);
+    // struct in_addr ipv4addr;
+    // memset(ipstr, 0, ipstr_len);
 
-    // Check if input is an IP address
-    if (inet_pton(AF_INET, hostname, &ipv4addr) == 1) {
-        // Convert IP address string to presentation format and return it
-        if (inet_ntop(AF_INET, &ipv4addr, ipstr, ipstr_len) == NULL) {
+    // // Check if input is an IP address
+    // if (inet_pton(AF_INET, hostname, &ipv4addr) == 1) {
+    //     // Convert IP address string to presentation format and return it
+    //     if (inet_ntop(AF_INET, &ipv4addr, ipstr, ipstr_len) == NULL) {
+    //         return;
+    //     }
+    // } else {
+    //     // Resolve hostname to IP address and return it
+    //     struct hostent  *he;
+    //     struct in_addr **addr_list;
+
+    //     if ((he = gethostbyname(hostname)) == NULL) {
+    //         return;
+    //     }
+
+    //     addr_list = (struct in_addr **)he->h_addr_list;
+
+    //     for (int i = 0; addr_list[i] != NULL; i++) {
+    //         strcpy(ipstr, inet_ntoa(*addr_list[i]));
+    //     }
+    // }
+    unsigned char buf[sizeof(struct in6_addr)];
+    char          str[INET6_ADDRSTRLEN];
+    int           s;
+
+    s = inet_pton(AF_INET, hostname, buf);
+    if (s <= 0) {
+        if (s == 0) {
+            // Resolve hostname to IP address and return it
+            struct addrinfo hints, *res;
+            int             errcode;
+
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family   = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            
+            if ((errcode = getaddrinfo(hostname, NULL, &hints, &res)) != 0) {
+                fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errcode));
+                return;
+            }
+
+            struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+            void *addr = &(ipv4->sin_addr);
+            inet_ntop(res->ai_family, addr, str, sizeof(str));
+            strncpy(ipstr, str, ipstr_len);
             return;
-        }
-    } else {
-        // Resolve hostname to IP address and return it
-        struct hostent  *he;
-        struct in_addr **addr_list;
-
-        if ((he = gethostbyname(hostname)) == NULL) {
-            return;
-        }
-
-        addr_list = (struct in_addr **)he->h_addr_list;
-
-        for (int i = 0; addr_list[i] != NULL; i++) {
-            strcpy(ipstr, inet_ntoa(*addr_list[i]));
-        }
+        } else
+            perror("inet_pton");
+        return;
     }
 
-    strncpy(ipstr, hostname, ipstr_len);
+    if (inet_ntop(AF_INET, buf, str, INET6_ADDRSTRLEN) == NULL) {
+        perror("inet_ntop");
+        return;
+    }
+
+    strncpy(ipstr, str, ipstr_len);
 }
 // void hostname_to_ip(const char *host, char *ipstr, size_t ipstr_len) {
 //     DEBUG_PRINT("Converting Host: %s to IP...\n", host)

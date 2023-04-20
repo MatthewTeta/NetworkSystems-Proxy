@@ -310,6 +310,10 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
     memcpy(data_out, cache_entry->data, cache_entry->size);
     *size_out = cache_entry->size;
 
+    // TODO: Manage this memory better (use MMAP?)
+    free(cache_entry->data);
+    cache_entry->data = NULL;
+
     // Protect the cache with a mutex lock
     sem_wait(&cache->mutex);
     // Decrement the number of users of the cache entry
@@ -324,13 +328,13 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
 
 /**
  * @brief Set a cache entry. Must be called in the miss handler function.
- * 
+ *
  * @param entry Entry to set
  * @param data Data to set
  * @param size Size of the data
- * 
+ *
  * @return int 0 if successful, -1 if not
-*/
+ */
 int cache_set(cache_entry_t *entry, char *data, size_t size) {
     // Check if the entry is valid
     if (!entry) {

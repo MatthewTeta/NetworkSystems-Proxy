@@ -59,6 +59,9 @@ blocklist_t *blocklist_init(const char *filepath) {
         blocklist_add(list, line);
     }
 
+    // Close the file
+    fclose(fp);
+
     return list;
 }
 
@@ -123,10 +126,10 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
 int blocklist_check(blocklist_t *blocklist, const char *test) {
     char new_ip[INET_ADDRSTRLEN];
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
-    if (strlen(new_ip) == 0) {
-        DEBUG_PRINT("Could not convert %s to an IP\n", test);
-        return 0;
-    }
+    // if (strlen(new_ip) == 0) {
+    //     DEBUG_PRINT("Could not convert %s to an IP\n", test);
+    //     return 0;
+    // }
     // Check if the entry is in the blocklist
     for (int i = 0; i < blocklist->count; i++) {
         if (strcmp(blocklist->list[i], new_ip) == 0) {

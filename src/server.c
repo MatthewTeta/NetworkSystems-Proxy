@@ -221,6 +221,7 @@ connection_t *connect_to_hostname(char *host, int port) {
     // Create a socket for the client
     connection->clientfd = socket(AF_INET, SOCK_STREAM, 0);
     if (connection->clientfd < 0) {
+        perror("Error: Failed to create socket");
         fprintf(stderr, "Error: Failed to create socket\n");
         return NULL;
     }
