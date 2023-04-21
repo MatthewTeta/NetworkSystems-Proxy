@@ -101,7 +101,11 @@ int request_header_parse(request_t *request) {
         return -1;
     }
     char *header_line = http_message_get_header_line(message);
-    DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
+    if (header_line == NULL) {
+        DEBUG_PRINT("Error getting header line.\n");
+        return -1;
+    }
+    // DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
     status = regexec(&uri_regex, header_line, 8, uri_matches, 0);
     if (status != 0) {
         char error_message[1024];
@@ -187,6 +191,9 @@ int request_is_connection_keep_alive(request_t *request) {
  * @return request_t* Request
  */
 request_t *request_parse(http_message_t *message) {
+    if (message == NULL) {
+        return NULL;
+    }
     request_t *request = request_new();
     request->message   = message;
     int status         = request_header_parse(request);
@@ -211,34 +218,48 @@ request_t *request_new() {
 }
 
 /**
- * @brief Get a key to hash the request on. Return NULL if the request is not
- * cacheable.
- *
- * @param request Request to hash
- * @param key Output key
- */
-void request_get_key(request_t *request, char *key) {
+ * @brief Determine if a request is cacheable
+ * 
+ * @param request Request to check
+ * @return int 1 if cacheable, 0 otherwise
+*/
+int request_is_cacheable(request_t *request) {
     // Check if the request is cacheable
     if (request->method == NULL || strcmp(request->method, "GET") != 0) {
-        return;
+        return 0;
     }
-    if (request->version == NULL || strcmp(request->version, "HTTP/1.1") != 0) {
-        return;
+    if (request->version == NULL) {
+        return 0;
     }
     if (request->host == NULL) {
-        return;
+        return 0;
     }
     if (request->uri == NULL) {
-        return;
+        return 0;
     }
     char *cache_control =
         http_message_header_get(request->message, "Cache-Control");
     if (cache_control != NULL) {
         if (strcmp(cache_control, "no-cache") == 0) {
             DEBUG_PRINT("Request is not cacheable because of Cache-Control\n");
-            return;
+            return 0;
         }
     }
-    // Create the key
-    sprintf(key, "%s%s", request->host, request->uri);
+    return 1;
+}
+
+/**
+ * @brief Get a key to hash the request on. Return NULL if the request is not
+ * cacheable.
+ *
+ * @param request Request to hash
+ * @param key Output key
+ * @param len Length of the key
+ */
+void request_get_key(request_t *request, char *key, size_t len) {
+    *key = '\0';
+    if (request_is_cacheable(request)) {
+        // Create the key
+        snprintf(key, len, "%s%s", request->host, request->uri);
+    }
 }

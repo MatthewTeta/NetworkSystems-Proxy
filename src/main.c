@@ -36,12 +36,6 @@ void sig_handler(int sig) {
 
         // Exit the program
         exit(0);
-    } else if (sig == SIGCHLD) {
-        // TODO: Check this
-        DEBUG_PRINT("Child process exited\n");
-        // Wait for all child processes to exit
-        while (waitpid(-1, NULL, WNOHANG) > 0)
-            ;
     }
 }
 
@@ -79,14 +73,9 @@ int main(int argc, char *argv[]) {
     struct sigaction sa;
     sa.sa_handler = sig_handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART; // Restart interrupted system calls
+    sa.sa_flags = 0; // Restart interrupted system calls
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("sigaction(SIGINT) failed");
-        fprintf(stderr, "Error setting up signal handler.\n");
-        exit(-1);
-    }
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("sigaction(SIGCHLD) failed");
         fprintf(stderr, "Error setting up signal handler.\n");
         exit(-1);
     }
@@ -97,6 +86,13 @@ int main(int argc, char *argv[]) {
 
     // Start the proxy server
     proxy_start();
+
+    // Wait for the proxy server to stop
+    // while (proxy_is_running()) {
+    //     sleep(1);
+    // }
+
+    DEBUG_PRINT("Proxy server stopped.\n");
 
     return 0;
 }

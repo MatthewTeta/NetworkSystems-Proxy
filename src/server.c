@@ -6,6 +6,7 @@
 
 #include "server.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -18,13 +19,31 @@
 
 #include "IP.h"
 #include "debug.h"
-#include "pid_list.h"
 
 // Global variables
 server_config_t server;
-pid_list_t     *child_pids  = NULL;
-int             stop_server = 0;
-int             parent      = 1;
+// pid_list_t     *child_pids  = NULL;
+int stop_server = 0;
+int is_running  = 0;
+int parent      = 1;
+
+/**
+ * @brief Check if the server is running
+ * @details The server takes some time to clean up after itself, so this allows
+ * the caller to wait
+ * @return 1 if the server is running, 0 otherwise
+ */
+int server_is_running() { return is_running; }
+
+// void sigchld_handler(int sig) {
+//     if (sig == SIGCHLD) {
+//         // Reap any child processes that have exited
+//         int status;
+//         if (waitpid(-1, &status, WNOHANG) > 0) {
+//             DEBUG_PRINT("Child process has exited.\n");
+//         }
+//     }
+// }
 
 /**
  * @brief Start the server
@@ -32,6 +51,18 @@ int             parent      = 1;
  */
 void server_start(server_config_t server_config) {
     memcpy(&server, &server_config, sizeof(server_config_t));
+    is_running = 1;
+
+    // // Register the SIGCHLD signal handler
+    // struct sigaction sa;
+    // sa.sa_handler = sigchld_handler;
+    // sigemptyset(&sa.sa_mask);
+    // if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+    //     perror("sigaction(SIGCHLD) failed");
+    //     fprintf(stderr, "Error setting up signal handler.\n");
+    //     exit(-1);
+    // }
+
     // Create the socket
     server.serverfd = socket(AF_INET, SOCK_STREAM, 0);
     if (server.serverfd < 0) {
@@ -69,6 +100,12 @@ void server_start(server_config_t server_config) {
     stop_server = 0;
     // Accept connections
     while (!stop_server) {
+        // Reap any child processes that have exited
+        int   status;
+        pid_t p;
+        while ((p = waitpid(-1, &status, WNOHANG)) > 0) {
+            DEBUG_PRINT("  --  Child process has exited (%d).\n", p);
+        }
         // if (child_pids != NULL) {
         //     // Check if any child processes have exited
         //     pid_list_t *pid_list = child_pids;
@@ -103,8 +140,8 @@ void server_start(server_config_t server_config) {
             exit(1);
         }
         // Fork the process to handle the request
-        // pid_t pid = fork();
-        pid_t pid = 0;
+        pid_t pid = fork();
+        // pid_t pid = 0;
         if (pid < 0) {
             fprintf(stderr, "Error: Failed to fork process\n");
             exit(1);
@@ -112,11 +149,11 @@ void server_start(server_config_t server_config) {
         if (pid) {
             // Parent process
             // Append the child process to the list of child processes
-            if (child_pids == NULL) {
-                child_pids = pid_list_create(pid);
-            } else {
-                pid_list_append(child_pids, pid);
-            }
+            // if (child_pids == NULL) {
+            //     child_pids = pid_list_create(pid);
+            // } else {
+            //     pid_list_append(child_pids, pid);
+            // }
             // pid_list_print(child_pids);
             close(connection->fd);
             continue;
@@ -153,51 +190,51 @@ void server_start(server_config_t server_config) {
             //        hostaddrp);
         }
         // Call the request handler
-        while (!stop_server) {
+        while (1) {
             server.handle_client(connection);
+            close_connection(connection);
+            exit(0);
         }
     }
+    // In parent context
+    // Close the listening socket and tell all child processes to exit
+    close(server.serverfd);
+    // Mask the SIGCHLD signal so that it doesn't interrupt the waitpid
+    // call
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+    // pid_list_t *current = child_pids;
+    // while (current != NULL) {
+    //     // KILL ALL THE CHILDREN
+    //     kill(current->pid, SIGINT);
+    //     current = current->next;
+    // }
+    kill(-1, SIGINT);
+    // Loop through the child pids and wait for them to exit
+    printf("\nWaiting for child processes to exit gracefully...\n");
+    // current = child_pids;
+    // REAP ALL THE CHILDREN
+    int status;
+    while (waitpid(-1, &status, WNOHANG) >= 0)
+        ;
+    assert(errno == ECHILD);
+    // Free the child pid list
+    // pid_list_free(child_pids);
+    // Unblock the SIGCHLD signal
+    sigprocmask(SIG_UNBLOCK, &mask, NULL);
+    if (server.verbose) {
+        printf("Server stopped\n");
+    }
+    is_running = 0;
 }
 
 /**
  * @brief Stop the server. This function is called by the signal handler.
  *
  */
-void server_stop() {
-    stop_server = 1;
-    if (parent) {
-        // Close the listening socket and tell all child processes to exit
-        close(server.serverfd);
-        // Mask the SIGCHLD signal so that it doesn't interrupt the waitpid
-        // call
-        sigset_t mask;
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGCHLD);
-        sigprocmask(SIG_BLOCK, &mask, NULL);
-        pid_list_t *current = child_pids;
-        while (current != NULL) {
-            // KILL ALL THE CHILDREN
-            kill(current->pid, SIGINT);
-            current = current->next;
-        }
-        // Loop through the child pids and wait for them to exit
-        printf("\nWaiting for child processes to exit gracefully...\n");
-        current = child_pids;
-        while (current != NULL) {
-            int status;
-            // REAP ALL THE CHILDREN
-            waitpid(current->pid, &status, 0);
-            current = current->next;
-        }
-        // Free the child pid list
-        pid_list_free(child_pids);
-        // Unblock the SIGCHLD signal
-        sigprocmask(SIG_UNBLOCK, &mask, NULL);
-        if (server.verbose) {
-            printf("Server stopped\n");
-        }
-    }
-}
+void server_stop() { stop_server = 1; }
 
 /**
  * @brief Exit the client process
@@ -248,8 +285,6 @@ connection_t *connect_to_hostname(char *host, int port) {
     memcpy(&connection->addr, res->ai_addr, res->ai_addrlen);
     connection->addr_len = res->ai_addrlen;
 
-    freeaddrinfo(res);
-
     // Create a socket for the client
     connection->fd = socket(AF_INET, SOCK_STREAM, 0);
     if (connection->fd < 0) {
@@ -260,10 +295,12 @@ connection_t *connect_to_hostname(char *host, int port) {
     DEBUG_PRINT("Created socket %d\n", connection->fd);
 
     // Connect to the server
-    status = connect(connection->fd, (struct sockaddr *)&connection->addr,
-                     connection->addr_len);
+    status = connect(connection->fd, (struct sockaddr *)res->ai_addr,
+                     res->ai_addrlen);
     if (status != 0) {
+        perror("Error: Failed to connect to server");
         fprintf(stderr, "Error: Failed to connect to %s\n", connection->ip);
+        freeaddrinfo(res);
         close(connection->fd);
         free(connection);
         return NULL;
@@ -272,6 +309,8 @@ connection_t *connect_to_hostname(char *host, int port) {
             printf("Connected to %s\n", connection->ip);
         }
     }
+
+    freeaddrinfo(res);
 
     return connection;
 }

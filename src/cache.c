@@ -105,6 +105,7 @@ void cache_free(cache_t *cache) {
             sem_post(&cache->mutex);
             break;
         }
+        DEBUG_PRINT("-- SOMEHOW THERE ARE STILL USERS -- \n");
         sem_post(&cache->mutex);
         sleep(1);
     }
@@ -145,13 +146,15 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
         return -1;
     }
 
-    uint8_t              hash[16];
-    char                 hash_str[33];
-    char                 cache_entry_path[1024];
-    size_t               bucket_idx = 0;
-    cache_entry_status_t status;
-    int                  wait                   = 1;
-    int                  synchronize_local_copy = 0;
+    uint8_t                hash[16];
+    char                   hash_str[33];
+    char                   cache_entry_path[1024];
+    size_t                 bucket_idx             = 0;
+    int                    synchronize_local_copy = 0;
+    cache_entry_t         *cache_entry            = NULL;
+    cache_bucket_t        *hash_bucket            = NULL;
+    cache_entry_storage_t *cache_entry_ptr        = NULL;
+    cache_entry_status_t   status                 = CACHE_ENTRY_STATUS_INVALID;
 
     // Compute the MD5 hash of the request key
     md5String(key, hash);
@@ -173,8 +176,9 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
 
     // Get the cache entry from the hash table if it exists
     sem_wait(&cache->mutex);
-    cache_bucket_t        *hash_bucket     = &cache->hash_table[bucket_idx];
-    cache_entry_storage_t *cache_entry_ptr = hash_bucket->first;
+    hash_bucket = &cache->hash_table[bucket_idx];
+    // Traverse linked list to find the cache entry in the bucket if it exists
+    cache_entry_ptr = hash_bucket->first;
     while (cache_entry_ptr != NULL) {
         if (strcmp(cache_entry_ptr->entry.key, key) == 0) {
             break;
@@ -183,15 +187,13 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
     }
     if (cache_entry_ptr == NULL) {
         // Cache entry does not exist, create it
-        cache_file_touch(cache_entry_path);
+        // cache_file_touch(cache_entry_path);
         cache_entry_ptr = malloc(sizeof(cache_entry_storage_t));
         memset(cache_entry_ptr, 0, sizeof(cache_entry_storage_t));
         cache_entry_ptr->entry.key  = strdup(key);
         cache_entry_ptr->entry.path = strdup(cache_entry_path);
         cache_entry_ptr->status     = CACHE_ENTRY_STATUS_INVALID;
         cache_entry_ptr->next       = NULL;
-        // cache_entry_ptr->num_users  = 1;
-        // cache_entry_ptr->timestamp  = time(NULL);
         // Add the cache entry to the hash table
         if (hash_bucket->first == NULL) {
             hash_bucket->first = cache_entry_ptr;
@@ -200,15 +202,11 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
             hash_bucket->first    = cache_entry_ptr;
         }
     }
-    // Increment the number of users of the cache
-    cache->num_users++;
-    // Increment the number of users of the cache entry
-    cache_entry_ptr->num_users++;
     sem_post(&cache->mutex);
 
     // Now we have a cache entry, wait for it to be valid or make it valid
 
-    while (wait) {
+    while (1) {
         // Protect the cache with a mutex lock
         sem_wait(&cache->mutex);
         status = cache_entry_ptr->status;
@@ -219,40 +217,45 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
             if (time(NULL) - cache_entry_ptr->timestamp > cache->ttl) {
                 // Cache entry is expired, invalidate it
                 cache_entry_ptr->status = CACHE_ENTRY_STATUS_INVALID;
-                break;
+                goto end_switch;
             }
+            // Use the resource
+            cache->num_users++;
             cache_entry_ptr->num_users++;
-            wait = 0;
-            break;
+            sem_post(&cache->mutex);
+            goto obtained_cache_entry;
         case CACHE_ENTRY_STATUS_IN_PROGRESS:
             // Cache entry is in progress, wait for it to finish
-            wait = 1;
-            break;
+            goto end_switch;
         case CACHE_ENTRY_STATUS_INVALID:
             // Cache entry is invalid
-            if (cache_entry_ptr->num_users == 1) {
-                // No one is using the cache entry, delete it
+            if (cache_entry_ptr->num_users == 0) {
+                // No one is using the cache entry, take ownership of obtaining
+                // the new copy
+                cache->num_users++;
                 cache_entry_ptr->num_users++;
                 cache_entry_ptr->status = CACHE_ENTRY_STATUS_IN_PROGRESS;
-                wait                    = 0;
                 synchronize_local_copy  = 1;
+                sem_post(&cache->mutex);
+                goto obtained_cache_entry;
             } else {
                 // Someone is using the cache entry, wait for them to finish
-                wait = 1;
             }
-            break;
+            goto end_switch;
         default:
             fprintf(stderr, "cache_get: invalid cache entry status\r\n");
             exit(1);
         }
+    end_switch:
         // Release the mutex lock
         sem_post(&cache->mutex);
         // Wait for the cache entry to be ready
         sleep(1);
     }
+obtained_cache_entry:
 
     // Get the cache entry for the caller
-    cache_entry_t *cache_entry = &cache_entry_ptr->entry;
+    cache_entry = &cache_entry_ptr->entry;
 
     if (synchronize_local_copy) {
         // Synchronize the local copy of the cache entry
@@ -274,16 +277,12 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
 
     // Determine the file size
     fseek(file, 0, SEEK_END);
-    cache_entry->size = ftell(file);
+    *size_out = ftell(file);
     fseek(file, 0, SEEK_SET);
 
     // Allocate or reallocate a buffer for the file contents
-    if (cache_entry->data == NULL) {
-        cache_entry->data = malloc(cache_entry->size);
-    } else {
-        cache_entry->data = realloc(cache_entry->data, cache_entry->size);
-    }
-    if (!cache_entry->data) {
+    data_out = malloc(*size_out);
+    if (!data_out) {
         perror("Failed to allocate memory");
         fclose(file);
         exit(1);
@@ -291,9 +290,8 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
 
     // Read the file contents into the buffer
     size_t ntot = 0;
-    while (ntot < cache_entry->size) {
-        size_t n =
-            fread(cache_entry->data + ntot, 1, cache_entry->size - ntot, file);
+    while (ntot < *size_out) {
+        size_t n = fread(data_out + ntot, 1, *size_out - ntot, file);
         if (n == 0) {
             perror("Failed to read file");
             fclose(file);
@@ -305,16 +303,7 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
     // Close the file
     fclose(file);
 
-    // Copy the data into user space
-    data_out = malloc(cache_entry->size);
-    memcpy(data_out, cache_entry->data, cache_entry->size);
-    *size_out = cache_entry->size;
-
-    // TODO: Manage this memory better (use MMAP?)
-    free(cache_entry->data);
-    cache_entry->data = NULL;
-
-    // Protect the cache with a mutex lock
+    // Release the resource
     sem_wait(&cache->mutex);
     // Decrement the number of users of the cache entry
     cache_entry_ptr->num_users--;
@@ -382,7 +371,6 @@ void cache_entry_storage_free(cache_entry_storage_t *entry) {
     }
     free(entry->entry.key);
     free(entry->entry.path);
-    free(entry->entry.data);
     free(entry);
 }
 
@@ -392,13 +380,13 @@ void cache_entry_storage_free(cache_entry_storage_t *entry) {
  * @brief Touch a cache file (Create if not
  * exists)
  */
-void cache_file_touch(char *path) {
-    // Create the meta file
-    DEBUG_PRINT("cache_entry_touch: creating file %s\r\n", path);
-    FILE *fp = fopen(path, "w");
-    if (!fp) {
-        fprintf(stderr, "cache_entry_touch: failed to create file\r\n");
-        exit(1);
-    }
-    fclose(fp);
-}
+// void cache_file_touch(char *path) {
+//     // Create the meta file
+//     DEBUG_PRINT("cache_entry_touch: creating file %s\r\n", path);
+//     FILE *fp = fopen(path, "w");
+//     if (!fp) {
+//         fprintf(stderr, "cache_entry_touch: failed to create file\r\n");
+//         exit(1);
+//     }
+//     fclose(fp);
+// }

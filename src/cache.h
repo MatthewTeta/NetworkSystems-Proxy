@@ -17,10 +17,8 @@
 typedef struct cache_entry_storage cache_entry_storage_t;
 
 typedef struct cache_entry {
-    char  *key;
-    char  *path;
-    char  *data;
-    size_t size;
+    char *key;
+    char *path;
 } cache_entry_t;
 
 typedef struct cache cache_t;
@@ -61,13 +59,13 @@ int cache_get(cache_t *cache, char *key, char *data_out, size_t *size_out,
 
 /**
  * @brief Set a cache entry. Must be called in the miss handler function.
- * 
+ *
  * @param entry Entry to set
  * @param data Data to set
  * @param size Size of the data
- * 
+ *
  * @return int 0 if successful, -1 if not
-*/
+ */
 int cache_set(cache_entry_t *entry, char *data, size_t size);
 
 /**

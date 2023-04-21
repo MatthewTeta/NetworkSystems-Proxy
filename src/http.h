@@ -109,6 +109,27 @@ char *http_message_header_get(http_message_t *message, char *key);
 void http_message_header_set(http_message_t *message, char *key, char *value);
 
 /**
+ * @brief Remove a header from a list of headers
+ *
+ * @param message HTTP message
+ * @param key Header key
+ *
+ * @return 0 on success, -1 on failure
+ */
+int http_message_header_remove(http_message_t *message, char *key);
+
+/**
+ * @brief Compare the header with the key to the value provided
+ *
+ * @param message HTTP message
+ * @param key Header key
+ * @param value Header value test
+ * @return int 0 if equal, -1 if not equal, -2 if no header found
+ */
+int http_message_header_compare(http_message_t *message, const void *key,
+                                const void *value);
+
+/**
  * @brief Print HTTP headers
  *
  * @param message HTTP message
@@ -123,6 +144,6 @@ void http_message_headers_print(http_message_t *message);
  * @param size Size of data buffer (output)
  */
 void http_get_message_buffer(http_message_t *message, char **data,
-                                  size_t *size);
+                             size_t *size);
 
 #endif

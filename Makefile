@@ -10,7 +10,7 @@ OBJDIR = obj
 LIBDIR = libraries
 TESTDIR = tests
 
-SOURCES = $(SRCDIR)/md5.c $(SRCDIR)/cache.c $(SRCDIR)/blocklist.c $(SRCDIR)/IP.c $(SRCDIR)/http.c $(SRCDIR)/request.c $(SRCDIR)/response.c $(SRCDIR)/pid_list.c $(SRCDIR)/server.c $(SRCDIR)/proxy.c $(SRCDIR)/main.c
+SOURCES = $(SRCDIR)/md5.c $(SRCDIR)/cache.c $(SRCDIR)/blocklist.c $(SRCDIR)/IP.c $(SRCDIR)/http.c $(SRCDIR)/request.c $(SRCDIR)/response.c $(SRCDIR)/server.c $(SRCDIR)/proxy.c $(SRCDIR)/main.c
 OBJECTS = $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SOURCES))
 EXECUTABLE = main
 

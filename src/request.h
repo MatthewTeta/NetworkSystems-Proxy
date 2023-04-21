@@ -19,8 +19,6 @@
 #include "http.h"
 #include "server.h"
 
-// #define REQUEST_URI_REGEX
-//     "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:[\\d]+)?([^\\s]*)?\\s+(HTTP/[\\d\\.]+)"
 #define REQUEST_URI_REGEX                                                      \
     "(\\w+)\\s+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^\\s]*)?\\s+(HTTP\\/"      \
     "[0-9\\]+\\.?[0-9]+)"
@@ -65,14 +63,6 @@ int request_send(request_t *request, connection_t *connection);
 void request_free(request_t *request);
 
 /**
- * @brief Check if a request is cacheable
- *
- * @param request
- * @return int
- */
-int request_is_cacheable(request_t *request);
-
-/**
  * @brief Check if a request is keep-alive
  *
  * @param request
@@ -85,8 +75,9 @@ int request_is_connection_keep_alive(request_t *request);
  *
  * @param request
  * @param key Output key
+ * @param len Length of key
  */
-void request_get_key(request_t *request, char *key);
+void request_get_key(request_t *request, char *key, size_t len);
 
 /**
  * @brief Parse a request from a message
@@ -95,5 +86,13 @@ void request_get_key(request_t *request, char *key);
  * @return request_t* Request
  */
 request_t *request_parse(http_message_t *message);
+
+/**
+ * @brief Determine if a request is cacheable
+ *
+ * @param request Request to check
+ * @return int 1 if cacheable, 0 otherwise
+ */
+int request_is_cacheable(request_t *request);
 
 #endif

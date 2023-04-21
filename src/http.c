@@ -35,9 +35,9 @@ typedef struct http_header {
  *
  */
 typedef struct http_headers {
-    int             size;    // Size of array
-    int             count;   // Number of headers in array
-    http_header_t **headers; // Array of headers
+    int            size;    // Size of array
+    int            count;   // Number of headers in array
+    http_header_t *headers; // Array of headers
 } http_headers_t;
 
 // Private functions
@@ -45,8 +45,8 @@ void http_headers_parse(http_message_t *message);
 int  http_headers_send(http_headers_t *headers, connection_t *connection);
 void http_message_header_set_(http_message_t *message, char *key, char *value,
                               int search);
-http_header_t *http_message_header_search(http_message_t *message, char *key,
-                                          int *index);
+http_header_t *http_message_header_search(http_message_t *message,
+                                          const char *key, int *index);
 
 /**
  * @brief HTTP message structure
@@ -88,16 +88,8 @@ http_message_t *http_message_create(char *data, size_t size) {
 http_message_t *http_message_recv(connection_t *connection) {
     http_message_t *message = malloc(sizeof(http_message_t));
     memset(message, 0, sizeof(http_message_t));
-    // // Open a stream to write the message into
-    // message->fp = open_memstream(&message->message, &message->message_len);
-    // DEBUG_PRINT("FP: %p\n", message->fp);
-    // if (message->fp == NULL) {
-    //     fprintf(stderr, "Error opening memstream in http_message_recv:
-    //     FP=%p\n",
-    //             message->fp);
-    // }
 
-    // Read the message into the
+    // Read the message into the message buffer
     ssize_t bytes_read;
     int     header_complete = 0;
     // Poll vars
@@ -170,7 +162,8 @@ http_message_t *http_message_recv(connection_t *connection) {
 
         // Slight optimization causes the strstr to only search the last 4 bytes
         // before
-        size_t search_start = max(0, message->message_len - 4);
+        // size_t search_start = max(0, message->message_len - 4);
+        size_t search_start = 0;
         message->body = strstr(message->message + search_start, "\r\n\r\n");
         // DEBUG_PRINT("strstr \\r\\n\\r\\n RV: %p\n", rv);
         if (message->body != NULL) {
@@ -180,7 +173,6 @@ http_message_t *http_message_recv(connection_t *connection) {
             header_complete = 1;
         }
     }
-    DEBUG_PRINT("HEADER_COMPLETE\n");
     // At this point, we have recieved the entire header and a partial body.
     // We need to parse the header to get the content length, and then read
     // the rest of the body.
@@ -199,8 +191,15 @@ http_message_t *http_message_recv(connection_t *connection) {
     // DEBUG_PRINT("Body length: %s\n", body_length);
     if (body_length != NULL) {
         message->body_len = atoi(body_length);
+    } else {
+        message->body_len = 0;
+        http_message_header_set(message, "Content-Length", "0");
     }
-    // DEBUG_PRINT("Body length: %lu\n", message->body_len);
+    DEBUG_PRINT("Header length: %lu, Body length: %lu, (a+b)(%lu), Message "
+                "len: %lu, Message size: %lu\n",
+                message->header_len, message->body_len,
+                message->header_len + message->body_len, message->message_len,
+                message->message_size);
     // TODO: Check if the body is too long
     // if (message->body_len > HTTP_MAX_BODY_LEN) {
     //     DEBUG_PRINT("Body is too long.\n");
@@ -212,26 +211,32 @@ http_message_t *http_message_recv(connection_t *connection) {
     // Allocate space for the body
     if (message->body_len > 0) {
         message->message_size +=
-            ((message->body_len / MESSAGE_CHUNK_SIZE) + 1) * MESSAGE_CHUNK_SIZE;
-        if (message->body_len % MESSAGE_CHUNK_SIZE == 0)
-            message->message_size -= MESSAGE_CHUNK_SIZE;
-        DEBUG_PRINT("message->message_len: %ld\n", message->message_size);
+            ((message->header_len + message->body_len) / MESSAGE_CHUNK_SIZE) *
+            MESSAGE_CHUNK_SIZE;
+        DEBUG_PRINT("message->message_size: %ld\n", message->message_size);
         message->message = realloc(message->message, message->message_size);
-        memset(message->message + message->message_len, 0,
-               message->message_size - message->message_len);
+        // memset(message->message + message->message_len, 0,
+        //        message->message_size - message->message_len);
     }
 
     if (message->body_len > 0) {
         int read_remaining =
             message->body_len + message->header_len - message->message_len;
+        if (read_remaining < 0) {
+            DEBUG_PRINT("Body is longer than content length.\n");
+            http_message_free(message);
+            return NULL;
+        }
         // if (read_remaining < message->body_len) {
         //     DEBUG_PRINT("Reading the rest of the body.\n");
         // } else if (read_remaining > message->body_len) {
         //     DEBUG_PRINT("Body is longer than content length.\n");
         // }
         while (read_remaining) {
+            // DEBUG_PRINT("Reading %d bytes from socket.\n", read_remaining);
             // Use recv to copy the message into the stream
             size_t recv_len = min(MESSAGE_CHUNK_SIZE, read_remaining);
+            // DEBUG_PRINT("Reading %ld bytes from socket.\n", recv_len);
             bytes_read =
                 recv(connection->fd, message->message + message->message_len,
                      recv_len, 0);
@@ -251,6 +256,9 @@ http_message_t *http_message_recv(connection_t *connection) {
         // fflush(message->fp);
     }
 
+    // DEBUG_PRINT("\n\nRead body (%lu):\n", message->body_len);
+    // DEBUG_PRINT("%s\n\n", message->body);
+
     return message;
 }
 
@@ -264,6 +272,17 @@ int http_message_send(http_message_t *message, connection_t *connection) {
     if (message == NULL || message->headers == NULL) {
         return -1;
     }
+
+    // Get the body length
+    char *body_length = http_message_header_get(message, "Content-Length");
+    // DEBUG_PRINT("Body length: %s\n", body_length);
+    if (body_length != NULL) {
+        message->body_len = atoi(body_length);
+    } else {
+        message->body_len = 0;
+        http_message_header_set(message, "Content-Length", "0");
+    }
+
     // Send the header line
     send_to_connection(connection, message->header_line,
                        strlen(message->header_line));
@@ -309,18 +328,25 @@ void http_message_free(http_message_t *message) {
  * @return http_headers_t* Parsed headers
  */
 void http_headers_parse(http_message_t *message) {
+    // Allocate a new headers struct (vector<http_header_t>)
     message->headers        = malloc(sizeof(http_headers_t));
     http_headers_t *headers = message->headers;
+    // Allocate space for the headers
     headers->headers =
-        malloc(sizeof(http_header_t *) * HTTP_HEADER_COUNT_DEFAULT);
+        malloc(sizeof(http_header_t) * HTTP_HEADER_COUNT_DEFAULT);
     headers->count = 0;
     headers->size  = HTTP_HEADER_COUNT_DEFAULT;
+    // Make a copy of the header buffer so we can modify it
+    char *header_buf = malloc(message->header_len + 1);
+    memcpy(header_buf, message->message, message->header_len);
+    header_buf[message->header_len] = '\0';
+    // Parse the headers
     char *saveptr1, *saveptr2;
-    char *msg  = message->message;
+    char *msg  = header_buf;
     char *line = strtok_r(msg, "\r\n", &saveptr1);
     int   i    = 0;
     while (line != NULL) {
-        DEBUG_PRINT("Line %d: %s\n", i, line);
+        // DEBUG_PRINT("Line %d: %s\n", i, line);
         if (i == 0) {
             // Skip the first line (request line)
             message->header_line = strdup(line);
@@ -344,6 +370,7 @@ void http_headers_parse(http_message_t *message) {
             DEBUG_PRINT("Malformed header: %s\n", line);
             free(line_copy); // free the copy of line
             http_headers_free(headers);
+            free(header_buf);
             return;
             // continue;
         }
@@ -353,6 +380,7 @@ void http_headers_parse(http_message_t *message) {
         line = strtok_r(NULL, "\r\n", &saveptr1);
         i++;
     }
+    free(header_buf);
 }
 
 /**
@@ -372,6 +400,9 @@ void http_message_set_header_line(http_message_t *message, char *header_line) {
  * @return char* Header line
  */
 char *http_message_get_header_line(http_message_t *message) {
+    if (message == NULL || message->header_line == NULL) {
+        return NULL;
+    }
     return message->header_line;
 }
 
@@ -386,6 +417,9 @@ char *http_message_get_header_line(http_message_t *message) {
 void http_message_set_body(http_message_t *message, char *body, size_t len) {
     message->body     = body;
     message->body_len = len;
+    char body_length[16];
+    sprintf(body_length, "%zu", len);
+    http_message_header_set(message, "Content-Length", body_length);
 }
 
 /**
@@ -408,8 +442,8 @@ char *http_message_header_get(http_message_t *message, char *key) {
     // TODO: Convert to lowercase for case-insensitive comparison
     http_headers_t *headers = message->headers;
     for (int i = 0; i < headers->count; i++) {
-        if (strcmp(headers->headers[i]->key, key) == 0) {
-            return headers->headers[i]->value;
+        if (strcmp(headers->headers[i].key, key) == 0) {
+            return headers->headers[i].value;
         }
     }
     return NULL;
@@ -447,15 +481,30 @@ void http_message_header_set_(http_message_t *message, char *key, char *value,
     if (headers->count >= headers->size) {
         headers->size *= 2;
         headers->headers =
-            realloc(headers->headers, sizeof(http_header_t *) * headers->size);
+            realloc(headers->headers, sizeof(http_header_t) * headers->size);
     }
-    headers->headers[headers->count] = malloc(sizeof(http_header_t));
-    header                           = headers->headers[headers->count];
+    header = &headers->headers[headers->count];
     // DEBUG_PRINT("Allocated header at %p\n", header);
-    header->key                      = strdup(key);
-    header->value                    = strdup(value);
-    headers->headers[headers->count] = header;
+    header->key   = strdup(key);
+    header->value = strdup(value);
     headers->count++;
+}
+
+/**
+ * @brief Compare the header with the key to the value provided
+ *
+ * @param message HTTP message
+ * @param key Header key
+ * @param value Header value test
+ * @return int 0 if equal, -1 if not equal, -2 if no header found
+ */
+int http_message_header_compare(http_message_t *message, const void *key,
+                                const void *value) {
+    http_header_t *header = http_message_header_search(message, key, NULL);
+    if (header == NULL) {
+        return -2;
+    }
+    return -!(0 == strcmp(header->value, value));
 }
 
 /**
@@ -477,9 +526,9 @@ int http_message_header_remove(http_message_t *message, char *key) {
     // DEBUG_PRINT("Freeing header at %p\n", header);
     free(header->key);
     free(header->value);
-    free(header);
-    // leave the header in place and NULL it out
-    headers->headers[i] = NULL;
+    // Shift headers down
+    memmove(header, header + 1,
+            sizeof(http_header_t) * (headers->count - i - 1));
     return 0;
 }
 
@@ -492,14 +541,22 @@ int http_message_header_remove(http_message_t *message, char *key) {
  *
  * @return http_header_t* Header if found, NULL if not found
  */
-http_header_t *http_message_header_search(http_message_t *message, char *key,
-                                          int *index) {
+http_header_t *http_message_header_search(http_message_t *message,
+                                          const char *key, int *index) {
     http_headers_t *headers = message->headers;
+    // DEBUG_PRINT("COUNT: %d\n", headers->count);
     for (int i = 0; i < headers->count; i++) {
-        if (strcmp(headers->headers[i]->key, key) == 0) {
+        if (headers->headers[i].key == NULL) {
+            i++;
+            continue;
+        }
+        // DEBUG_PRINT("Comparing (%d) %s to %s\n", headers->count,
+        // headers->headers[i].key, key);
+        if (strcmp(headers->headers[i].key, key) == 0) {
             if (index != NULL)
                 *index = i;
-            return headers->headers[i];
+            // DEBUG_PRINT("Found header at %d\n", i);
+            return &headers->headers[i];
         }
     }
     return NULL;
@@ -513,8 +570,10 @@ http_header_t *http_message_header_search(http_message_t *message, char *key,
 void http_message_headers_print(http_message_t *message) {
     http_headers_t *headers = message->headers;
     for (int i = 0; i < headers->count; i++) {
-        printf("%s: %s\n", headers->headers[i]->key,
-               headers->headers[i]->value);
+        if (headers->headers[i].key == NULL) {
+            continue;
+        }
+        printf("%s: %s\n", headers->headers[i].key, headers->headers[i].value);
     }
 }
 
@@ -528,9 +587,12 @@ void http_headers_free(http_headers_t *headers) {
         return;
     }
     for (int i = 0; i < headers->count; i++) {
-        free(headers->headers[i]->key);
-        free(headers->headers[i]->value);
-        free(headers->headers[i]);
+        if (headers->headers[i].key != NULL) {
+            free(headers->headers[i].key);
+        }
+        if (headers->headers[i].value != NULL) {
+            free(headers->headers[i].value);
+        }
     }
     free(headers->headers);
     free(headers);
@@ -553,13 +615,13 @@ int http_headers_send(http_headers_t *headers, connection_t *connection) {
     http_header_t *h;
     for (size_t i = 0; i < headers->count; i++) {
         memset(s, 0, sizeof(s));
-        h = headers->headers[i];
+        h = &headers->headers[i];
         if (h == NULL)
             continue;
         sprintf(s, "%s: %s\r\n", h->key, h->value);
         rv = send_to_connection(connection, s, strlen(s));
     }
-    send_to_connection(connection, "\r\n\r\n", 2);
+    send_to_connection(connection, "\r\n", 2);
     return rv;
 }
 

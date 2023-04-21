@@ -28,7 +28,6 @@
  */
 typedef struct connection {
     int                fd;
-    // int                connected;
     char               ip[INET_ADDRSTRLEN];
     struct hostent     host;
     struct sockaddr_in addr;
@@ -50,6 +49,14 @@ typedef struct server_config {
     int verbose;
     void (*handle_client)(connection_t *connection);
 } server_config_t;
+
+/**
+ * @brief Check if the server is running
+ * @details The server takes some time to clean up after itself, so this allows
+ * the caller to wait
+ * @return 1 if the server is running, 0 otherwise
+ */
+int server_is_running();
 
 /**
  * @brief Start the server

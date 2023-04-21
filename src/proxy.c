@@ -35,6 +35,7 @@ int          verbose;
 int          proxyfd;
 blocklist_t *blocklist;
 cache_t     *cache;
+int          proxy_running = 0;
 
 // Function prototypes
 void handle_client(connection_t *connection);
@@ -79,6 +80,7 @@ void proxy_start() {
     if (verbose) {
         printf("Starting the proxy server\n");
     }
+    proxy_running = 1;
     // Start the server
     server_config_t config;
     memset(&config, 0, sizeof(config));
@@ -86,6 +88,20 @@ void proxy_start() {
     config.verbose       = verbose;
     config.handle_client = handle_client;
     server_start(config);
+
+    // Wait for the server to stop
+    while (server_is_running())
+        sleep(1);
+
+    DEBUG_PRINT(" !!  -- Server stopped -- SUCCESS \n");
+
+    // Destroy the cache
+    cache_free(cache);
+
+    // Destroy the blocklist
+    blocklist_free(blocklist);
+
+    proxy_running = 0;
 }
 
 /**
@@ -98,13 +114,9 @@ void proxy_stop() {
     }
     // Stop the server
     server_stop();
-
-    // Destroy the cache
-    cache_free(cache);
-
-    // Destroy the blocklist
-    blocklist_free(blocklist);
 }
+
+int proxy_is_running() { return proxy_running; }
 
 /**
  * @brief Exit the child process
@@ -161,10 +173,24 @@ void handle_client(connection_t *connection) {
         }
 
         connection_keep_alive = request_is_connection_keep_alive(request);
+        connection_keep_alive |= !http_message_header_compare(
+            message, "Proxy-Connection", "Keep-Alive");
         DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
 
-        if (strcmp(request->method, "GET") != 0) {
-            // Tunnel the request to the server
+        // Add the proxy headers
+        http_message_header_set(message, "Forwarded", connection->ip);
+        http_message_header_set(message, "Via", "1.1 MatthewTetaProxy");
+        // Remove proxy headers
+        http_message_header_remove(message, "Proxy-Connection");
+        http_message_header_remove(message, "Proxy-Authorization");
+        http_message_header_remove(message, "Proxy-Authenticate");
+
+        // Get a hash key from the request
+        char key[1024];
+        request_get_key(request, key, 1024);
+        // if (strlen(key) == 0) {
+        if (1) {
+            // Request is not cacheable - patch through
             response = response_fetch(request);
             if (response == NULL) {
                 // Send a 504 Gateway Timeout response
@@ -175,14 +201,12 @@ void handle_client(connection_t *connection) {
             }
             // Send the response to the client
             if (0 != response_send(response, connection)) {
-                fprintf(stderr,
-                        "Error: Failed to send the response to the client\n");
+                fprintf(stderr, "Error: Failed to send the response to the "
+                                "client\n");
                 exit_child(connection);
             }
         } else {
-            // Get a hash key from the request
-            char key[1024];
-            request_get_key(request, key);
+            // Request is cacheable
             char  *data = NULL;
             size_t size = 0;
             // Get the response from the cache
@@ -226,31 +250,25 @@ void proxy_cache_miss_resolver(cache_entry_t *entry, void *arg) {
     DEBUG_PRINT("Resolving cache miss\n");
     request_t *request = (request_t *)arg;
     // Open a connection to the server
-    connection_t *connection =
-        connect_to_hostname(request->host, request->port);
-    if (connection == NULL) {
+    connection_t *server = connect_to_hostname(request->host, request->port);
+    if (server == NULL) {
         DEBUG_PRINT("Error: Failed to connect to the server\n");
         return;
     }
     // Send the request to the server
-    if (0 != request_send(request, connection)) {
+    if (0 != request_send(request, server)) {
         DEBUG_PRINT("Error: Failed to send the request to the server\n");
         return;
     }
     // Recv the response from the server
-    http_message_t *message = http_message_recv(connection);
+    http_message_t *message = http_message_recv(server);
 
     // Before parsing the response (further), cache it
-    char  *buffer;
+    char  *buffer = NULL;
     size_t size;
     http_get_message_buffer(message, &buffer, &size);
     cache_set(entry, buffer, size);
 
-    response_t *response = response_parse(message);
-    if (response == NULL) {
-        DEBUG_PRINT("Error: Failed to parse the response from the server\n");
-        return;
-    }
     // Close the connection to the server
-    close_connection(connection);
+    close_connection(server);
 }

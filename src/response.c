@@ -31,10 +31,15 @@
  */
 response_t *response_recv(connection_t *connection) {
     // Get the response
-    http_message_t *response_message = http_message_recv(connection);
-    response_t     *response         = malloc(sizeof(response_t));
+    response_t *response = malloc(sizeof(response_t));
     memset(response, 0, sizeof(response_t));
-    response->message = response_message;
+    http_message_t *response_message = http_message_recv(connection);
+    if (response_message == NULL) {
+        fprintf(stderr, "Could not get response message\n");
+        free(response);
+        return NULL;
+    }
+    response->message                = response_message;
     response_header_parse(response);
 
     return response;
@@ -53,7 +58,6 @@ response_t *response_fetch(request_t *request) {
         connect_to_hostname(request->host, request->port);
     if (server_connection == NULL) {
         fprintf(stderr, "Could not connect to server\n");
-        close_connection(server_connection);
         return NULL;
     }
 
@@ -179,7 +183,7 @@ response_t *response_parse(http_message_t *message) {
     response_t *response = malloc(sizeof(response_t));
     memset(response, 0, sizeof(response_t));
     response->message = message;
-    int rv = response_header_parse(response);
+    int rv            = response_header_parse(response);
     if (rv != 0) {
         fprintf(stderr, "Could not parse response\n");
         response_free(response);
