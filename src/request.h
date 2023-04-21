@@ -42,7 +42,7 @@ typedef struct request {
 /**
  * @brief Recieve a request from a client socket
  *
- * @param clientfd Client socket
+ * @param connection socket to recv from
  * @return request_t* Request
  */
 request_t *request_recv(connection_t *connection);

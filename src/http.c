@@ -45,6 +45,8 @@ void http_headers_parse(http_message_t *message);
 int  http_headers_send(http_headers_t *headers, connection_t *connection);
 void http_message_header_set_(http_message_t *message, char *key, char *value,
                               int search);
+http_header_t *http_message_header_search(http_message_t *message, char *key,
+                                          int *index);
 
 /**
  * @brief HTTP message structure
@@ -122,7 +124,7 @@ http_message_t *http_message_recv(connection_t *connection) {
         // Poll the socket for data until we get something or a
         // timeout is recieved
         revents     = 0;
-        fds.fd      = connection->clientfd;
+        fds.fd      = connection->fd;
         fds.events  = POLLIN;
         fds.revents = revents;
         rv          = poll(&fds, 1, KEEP_ALIVE_TIMEOUT_MS);
@@ -147,7 +149,7 @@ http_message_t *http_message_recv(connection_t *connection) {
         }
         // We got data before the timeout, read it
         bytes_read =
-            recv(connection->clientfd, message->message + message->message_len,
+            recv(connection->fd, message->message + message->message_len,
                  MESSAGE_CHUNK_SIZE, 0);
         // DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
         if (bytes_read == 0) {
@@ -178,7 +180,7 @@ http_message_t *http_message_recv(connection_t *connection) {
             header_complete = 1;
         }
     }
-    // DEBUG_PRINT("HEADER_COMPLETE\n");
+    DEBUG_PRINT("HEADER_COMPLETE\n");
     // At this point, we have recieved the entire header and a partial body.
     // We need to parse the header to get the content length, and then read
     // the rest of the body.
@@ -187,7 +189,7 @@ http_message_t *http_message_recv(connection_t *connection) {
     if (message->headers == NULL) {
         DEBUG_PRINT("Error parsing message header.\n");
         // Send a 400 Bad message response
-        // response_send(connection->clientfd, 400, "Bad message", NULL, 0);
+        // response_send(connection->fd, 400, "Bad message", NULL, 0);
         http_message_free(message);
         return NULL;
     }
@@ -203,7 +205,7 @@ http_message_t *http_message_recv(connection_t *connection) {
     // if (message->body_len > HTTP_MAX_BODY_LEN) {
     //     DEBUG_PRINT("Body is too long.\n");
     //     // Send a 400 Bad message response
-    //     // response_send(connection->clientfd, 400, "Bad message", NULL, 0);
+    //     // response_send(connection->fd, 400, "Bad message", NULL, 0);
     //     http_message_free(message);
     //     return NULL;
     // }
@@ -231,8 +233,8 @@ http_message_t *http_message_recv(connection_t *connection) {
             // Use recv to copy the message into the stream
             size_t recv_len = min(MESSAGE_CHUNK_SIZE, read_remaining);
             bytes_read =
-                recv(connection->clientfd,
-                     message->message + message->message_len, recv_len, 0);
+                recv(connection->fd, message->message + message->message_len,
+                     recv_len, 0);
             // DEBUG_PRINT("Read %ld bytes from client socket.\n", bytes_read);
             if (bytes_read == 0) {
                 DEBUG_PRINT("Client socket closed.\n");
@@ -307,19 +309,22 @@ void http_message_free(http_message_t *message) {
  * @return http_headers_t* Parsed headers
  */
 void http_headers_parse(http_message_t *message) {
-    http_headers_t *headers = message->headers = malloc(sizeof(http_headers_t));
+    message->headers        = malloc(sizeof(http_headers_t));
+    http_headers_t *headers = message->headers;
     headers->headers =
         malloc(sizeof(http_header_t *) * HTTP_HEADER_COUNT_DEFAULT);
-    headers->size = HTTP_HEADER_COUNT_DEFAULT;
-    char *msg     = message->message;
-    char *line    = strtok(msg, "\r\n");
-    int   i       = 0;
+    headers->count = 0;
+    headers->size  = HTTP_HEADER_COUNT_DEFAULT;
+    char *saveptr1, *saveptr2;
+    char *msg  = message->message;
+    char *line = strtok_r(msg, "\r\n", &saveptr1);
+    int   i    = 0;
     while (line != NULL) {
         DEBUG_PRINT("Line %d: %s\n", i, line);
         if (i == 0) {
             // Skip the first line (request line)
             message->header_line = strdup(line);
-            line                 = strtok(NULL, "\r\n");
+            line                 = strtok_r(NULL, "\r\n", &saveptr1);
             i++;
             continue;
         }
@@ -328,8 +333,8 @@ void http_headers_parse(http_message_t *message) {
             break;
         }
         char *line_copy = strdup(line); // make a copy of line
-        char *key       = strtok(line_copy, ":");
-        char *val       = strtok(NULL, "");
+        char *key       = strtok_r(line_copy, ":", &saveptr2);
+        char *val       = strtok_r(NULL, "", &saveptr2);
         // remove leading whitespace from val
         while (isspace(*val)) {
             val++;
@@ -345,7 +350,7 @@ void http_headers_parse(http_message_t *message) {
         DEBUG_PRINT("HEADER -- %s: %s\n", key, val);
         http_message_header_set_(message, key, val, 0);
         free(line_copy); // free the copy of line
-        line = strtok(NULL, "\r\n");
+        line = strtok_r(NULL, "\r\n", &saveptr1);
         i++;
     }
 }
@@ -424,17 +429,17 @@ void http_message_header_set(http_message_t *message, char *key, char *value) {
 void http_message_header_set_(http_message_t *message, char *key, char *value,
                               int search) {
     http_headers_t *headers = message->headers;
+    http_header_t  *header  = NULL;
     // TODO: Use a hash table for faster lookup
     // TODO: Convert to lowercase for case-insensitive comparison
     if (search) {
-        // First search for the header
-        for (int i = 0; i < headers->count; i++) {
-            if (strcmp(headers->headers[i]->key, key) == 0) {
-                // Header already exists, just update the value
-                free(headers->headers[i]->value);
-                headers->headers[i]->value = strdup(value);
-                return;
-            }
+        // Attempt to update existing header
+        header = http_message_header_search(message, key, NULL);
+        if (header != NULL) {
+            // Header exists, update it
+            free(header->value);
+            header->value = strdup(value);
+            return;
         }
     }
     // Header does not exist, add it
@@ -444,14 +449,75 @@ void http_message_header_set_(http_message_t *message, char *key, char *value,
         headers->headers =
             realloc(headers->headers, sizeof(http_header_t *) * headers->size);
     }
-    http_header_t *header = headers->headers[headers->count] =
-        malloc(sizeof(http_header_t));
+    headers->headers[headers->count] = malloc(sizeof(http_header_t));
+    header                           = headers->headers[headers->count];
     // DEBUG_PRINT("Allocated header at %p\n", header);
     header->key                      = strdup(key);
     header->value                    = strdup(value);
     headers->headers[headers->count] = header;
     headers->count++;
 }
+
+/**
+ * @brief Remove a header from a list of headers
+ *
+ * @param message HTTP message
+ * @param key Header key
+ *
+ * @return 0 on success, -1 on failure
+ */
+int http_message_header_remove(http_message_t *message, char *key) {
+    int             i;
+    http_header_t  *header  = http_message_header_search(message, key, &i);
+    http_headers_t *headers = message->headers;
+    if (header == NULL) {
+        // Header not found
+        return -1;
+    }
+    // DEBUG_PRINT("Freeing header at %p\n", header);
+    free(header->key);
+    free(header->value);
+    free(header);
+    // leave the header in place and NULL it out
+    headers->headers[i] = NULL;
+    return 0;
+}
+
+/**
+ * @brief Search for a header in a list of headers
+ *
+ * @param message HTTP message
+ * @param key Header key
+ * @param index Index of header (output, optional)
+ *
+ * @return http_header_t* Header if found, NULL if not found
+ */
+http_header_t *http_message_header_search(http_message_t *message, char *key,
+                                          int *index) {
+    http_headers_t *headers = message->headers;
+    for (int i = 0; i < headers->count; i++) {
+        if (strcmp(headers->headers[i]->key, key) == 0) {
+            if (index != NULL)
+                *index = i;
+            return headers->headers[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * @brief Print HTTP headers
+ *
+ * @param message HTTP message
+ */
+void http_message_headers_print(http_message_t *message) {
+    http_headers_t *headers = message->headers;
+    for (int i = 0; i < headers->count; i++) {
+        printf("%s: %s\n", headers->headers[i]->key,
+               headers->headers[i]->value);
+    }
+}
+
 /**
  * @brief Free HTTP headers
  *
@@ -486,14 +552,14 @@ int http_headers_send(http_headers_t *headers, connection_t *connection) {
     char           s[1024];
     http_header_t *h;
     for (size_t i = 0; i < headers->count; i++) {
-        memset(s, 0, sizeof(s) * sizeof(char));
+        memset(s, 0, sizeof(s));
         h = headers->headers[i];
+        if (h == NULL)
+            continue;
         sprintf(s, "%s: %s\r\n", h->key, h->value);
         rv = send_to_connection(connection, s, strlen(s));
-        if (rv != 0) {
-            return rv;
-        }
     }
+    send_to_connection(connection, "\r\n\r\n", 2);
     return rv;
 }
 
@@ -505,7 +571,7 @@ int http_headers_send(http_headers_t *headers, connection_t *connection) {
  * @param size Size of data buffer (output)
  */
 void http_get_message_buffer(http_message_t *message, char **data,
-                                  size_t *size) {
+                             size_t *size) {
     *data = message->message;
     *size = message->message_size;
 }

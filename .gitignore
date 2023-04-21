@@ -1,5 +1,6 @@
 dist/
-blocklist/
+**blocklist**
 cache/
 obj/
 main
+bin/

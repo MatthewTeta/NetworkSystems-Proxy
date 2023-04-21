@@ -92,17 +92,19 @@ void server_start(server_config_t server_config) {
         // Accept the connection
         connection_t *connection = malloc(sizeof(connection_t));
         memset(connection, 0, sizeof(connection_t));
-        struct sockaddr_in *c_addr_in  = &(connection->client_addr);
-        socklen_t          *c_addr_len = &(connection->client_addr_len);
-        connection->clientfd =
+        struct sockaddr_in *c_addr_in  = &(connection->addr);
+        socklen_t          *c_addr_len = &(connection->addr_len);
+        connection->addr_len           = sizeof(struct sockaddr_in);
+        connection->fd =
             accept(server.serverfd, (struct sockaddr *)c_addr_in, c_addr_len);
         DEBUG_PRINT("Accepted connection\n");
-        if (connection->clientfd < 0) {
+        if (connection->fd < 0) {
             fprintf(stderr, "Error: Failed to accept connection\n");
             exit(1);
         }
         // Fork the process to handle the request
-        pid_t pid = fork();
+        // pid_t pid = fork();
+        pid_t pid = 0;
         if (pid < 0) {
             fprintf(stderr, "Error: Failed to fork process\n");
             exit(1);
@@ -116,7 +118,7 @@ void server_start(server_config_t server_config) {
                 pid_list_append(child_pids, pid);
             }
             // pid_list_print(child_pids);
-            close(connection->clientfd);
+            close(connection->fd);
             continue;
         }
         DEBUG_PRINT("IN CHILD PROCESS: %d\n", pid);
@@ -142,8 +144,11 @@ void server_start(server_config_t server_config) {
         // }
         // Print who has connected
         if (server.verbose) {
-            char *client_ip = inet_ntoa(connection->client_addr.sin_addr);
-            printf("Client IP address: %s\n", client_ip);
+            // char *ip = inet_ntoa(connection->addr.sin_addr);
+            // char ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(connection->addr.sin_addr), connection->ip,
+                      INET_ADDRSTRLEN);
+            printf("Client IP address: %s\n", connection->ip);
             // printf("Established connection with %s (%s)\n", hostp->h_name,
             //        hostaddrp);
         }
@@ -201,78 +206,72 @@ void close_connection(connection_t *connection) {
     if (server.verbose) {
         printf("Closing connection\n");
     }
-    close(connection->clientfd);
+    close(connection->fd);
     free(connection);
-    exit(0);
 }
 
 /**
  * @brief Initialize a connection
  *
- * @param clientfd Client file descriptor
  * @param host Client host information
  * @param port Client port
- * @return connection_t* Connection
+ * @return connection_t* Connection (note that the host field is not set)
  */
 connection_t *connect_to_hostname(char *host, int port) {
     connection_t *connection = malloc(sizeof(connection_t));
     memset(connection, 0, sizeof(connection_t));
 
+    int             status;
+    char            port_str[6];
+    struct addrinfo hints, *res;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    // Get the address of the host
+    sprintf(port_str, "%d", port);
+    status = getaddrinfo(host, port_str, &hints, &res);
+    if (status != 0) {
+        fprintf(stderr, "Error: Failed to get address info for %s: %s\n", host,
+                gai_strerror(status));
+        free(connection);
+        return NULL;
+    }
+
+    // Copy the ip string into the connection struct
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    void               *addr = &(ipv4->sin_addr);
+    inet_ntop(res->ai_family, addr, connection->ip, INET_ADDRSTRLEN);
+
+    // Copy the addr into the connection struct
+    memcpy(&connection->addr, res->ai_addr, res->ai_addrlen);
+    connection->addr_len = res->ai_addrlen;
+
+    freeaddrinfo(res);
+
     // Create a socket for the client
-    connection->clientfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (connection->clientfd < 0) {
-        perror("Error: Failed to create socket");
-        fprintf(stderr, "Error: Failed to create socket\n");
+    connection->fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (connection->fd < 0) {
+        fprintf(stderr, "Error: Failed to create socket for %s\n", host);
+        free(connection);
         return NULL;
     }
+    DEBUG_PRINT("Created socket %d\n", connection->fd);
 
-    // Set the servers address
-    struct sockaddr_in client_addr;
-    socklen_t          client_addr_len = sizeof(client_addr);
-    memset(&client_addr, 0, sizeof(client_addr));
-    client_addr.sin_family = AF_INET;
-    client_addr.sin_port   = htons(port);
-    // Convert the request host to an IP address
-    char ipstr[INET_ADDRSTRLEN];
-    hostname_to_ip(host, ipstr, INET_ADDRSTRLEN);
-    DEBUG_PRINT("Host: %s, IP: %s\n", host, ipstr);
-    // Set the server address to the IP address
-    if (inet_pton(AF_INET, ipstr, &client_addr.sin_addr) <= 0) {
-        fprintf(stderr, "Invalid server address: %s\n", ipstr);
+    // Connect to the server
+    status = connect(connection->fd, (struct sockaddr *)&connection->addr,
+                     connection->addr_len);
+    if (status != 0) {
+        fprintf(stderr, "Error: Failed to connect to %s\n", connection->ip);
+        close(connection->fd);
+        free(connection);
         return NULL;
+    } else {
+        if (server.verbose) {
+            printf("Connected to %s\n", connection->ip);
+        }
     }
-    memcpy((&connection->client_addr), &client_addr, sizeof(client_addr));
-    connection->client_addr_len = client_addr_len;
-    // Get the servers's address
-    char           *hostaddrp;
-    struct hostent *hostp;
-    // TODO: Wat?? Make this more readable using more stack variables
-    hostp = gethostbyaddr(
-        (const char *)&((struct sockaddr_in *)(&connection->client_addr))
-            ->sin_addr.s_addr,
-        sizeof(((struct sockaddr_in *)(&connection->client_addr))
-                   ->sin_addr.s_addr),
-        AF_INET);
-    if (hostp == NULL) {
-        fprintf(stderr, "ERROR on gethostbyaddr\n");
-        exit(-3);
-    }
-    hostaddrp =
-        inet_ntoa(((struct sockaddr_in *)(&connection->client_addr))->sin_addr);
-    if (hostaddrp == NULL) {
-        fprintf(stderr, "ERROR on inet_ntoa\n");
-        exit(-3);
-    }
-    // Print who has connected
-    if (server.verbose)
-        printf("Established connection with %s (%s)\n", hostp->h_name,
-               hostaddrp);
-
-    // Set up the connection struct
-    strncpy(connection->client_ip, hostaddrp, INET_ADDRSTRLEN);
-    memcpy(&connection->host, hostp, sizeof(struct hostent));
-    memcpy((&connection->client_addr), &client_addr, sizeof(client_addr));
-    connection->client_addr_len = client_addr_len;
 
     return connection;
 }
@@ -302,13 +301,13 @@ ssize_t send_to_connection(connection_t *connection, char *msg,
     }
     ssize_t bytes_sent = 0;
     while (bytes_sent < msg_len) {
-        ssize_t sent = send(connection->clientfd, msg + bytes_sent,
-                            msg_len - bytes_sent, 0);
+        ssize_t sent =
+            send(connection->fd, msg + bytes_sent, msg_len - bytes_sent, 0);
         if (sent < 0) {
             fprintf(stderr, "Error: Failed to send message\n");
             return -1;
         }
-        if (bytes_sent == 0) {
+        if (sent == 0) {
             DEBUG_PRINT("Sent 0 bytes in send_to_connection... \n");
         }
         bytes_sent += sent;

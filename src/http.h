@@ -109,6 +109,13 @@ char *http_message_header_get(http_message_t *message, char *key);
 void http_message_header_set(http_message_t *message, char *key, char *value);
 
 /**
+ * @brief Print HTTP headers
+ *
+ * @param message HTTP message
+ */
+void http_message_headers_print(http_message_t *message);
+
+/**
  * @brief Get the HTTP data buffer from a message
  *
  * @param message HTTP message

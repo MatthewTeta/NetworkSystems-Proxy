@@ -50,7 +50,7 @@ int request_send(request_t *request, connection_t *connection) {
     // Prepare the request line
     char request_line[1024];
     memset(request_line, 0, 1024);
-    sprintf(request_line, "%s %s HTTP/%s\r\n", request->method, request->uri,
+    sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
             request->version);
     DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
     http_message_set_header_line(request->message, request_line);
@@ -61,7 +61,6 @@ int request_send(request_t *request, connection_t *connection) {
         sprintf(host, "%s:%d", request->host, request->port);
     else
         sprintf(host, "%s", request->host);
-    DEBUG_PRINT("HOST: %s\n", host);
     http_message_header_set(request->message, "Host", host);
     // Send the request
     int status = http_message_send(request->message, connection);
@@ -133,12 +132,16 @@ int request_header_parse(request_t *request) {
                                  uri_matches[5].rm_eo - uri_matches[5].rm_so);
         request->port  = atoi(port_str);
         free(port_str);
+    } else {
+        request->port = 80;
     }
     DEBUG_PRINT(" -- PORT: %d\n", request->port);
     // Get the uri
     if (uri_matches[6].rm_so != -1) {
         request->uri = strndup(header_line + uri_matches[6].rm_so,
                                uri_matches[6].rm_eo - uri_matches[6].rm_so);
+    } else {
+        request->uri = strdup("/");
     }
     DEBUG_PRINT(" -- URI: %s\n", request->uri);
     // Get the http version

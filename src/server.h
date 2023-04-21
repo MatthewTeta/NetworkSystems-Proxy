@@ -22,16 +22,17 @@
  *
  * @details This struct contains information about a client connection
  *
- * @param clientfd Client file descriptor
- * @param client_ip Client IP address
+ * @param fd Client file descriptor
+ * @param ip Client IP address
  * @param host Client host information
  */
 typedef struct connection {
-    int                clientfd;
-    char               client_ip[INET_ADDRSTRLEN];
+    int                fd;
+    // int                connected;
+    char               ip[INET_ADDRSTRLEN];
     struct hostent     host;
-    struct sockaddr_in client_addr;
-    socklen_t          client_addr_len;
+    struct sockaddr_in addr;
+    socklen_t          addr_len;
 } connection_t;
 
 /**
@@ -79,13 +80,13 @@ connection_t *connect_to_hostname(char *host, int port);
 
 /**
  * @brief Send a message to a connection (guarentees all bytes are sent)
- * 
+ *
  * @param connection Connection
  * @param msg Message to send
  * @param msg_len Length of message
- * 
+ *
  * @return ssize_t Number of bytes sent or -1 on error
-*/
+ */
 ssize_t send_to_connection(connection_t *connection, char *msg, size_t msg_len);
 
 #endif
