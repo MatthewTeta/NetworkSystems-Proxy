@@ -259,7 +259,7 @@ connection_t *connect_to_hostname(char *host, int port) {
     memset(connection, 0, sizeof(connection_t));
 
     int             status;
-    char            port_str[6];
+    char            port_str[6] = {0};
     struct addrinfo hints, *res;
 
     memset(&hints, 0, sizeof(hints));
@@ -267,6 +267,7 @@ connection_t *connect_to_hostname(char *host, int port) {
     hints.ai_socktype = SOCK_STREAM;
 
     // Get the address of the host
+
     sprintf(port_str, "%d", port);
     status = getaddrinfo(host, port_str, &hints, &res);
     if (status != 0) {

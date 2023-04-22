@@ -21,8 +21,25 @@
 #define KEEP_ALIVE_TIMEOUT_MS        10000
 #define HTTP_MESSAGE_MAX_HEADER_SIZE 8192
 #define HTTP_MESSAGE_MAX_BODY_SIZE   (4 * 1024 * 1024 * 1024) // 4 GB
+#define HTTP_HOST_REGEX              "(http[s]?://)?([^/:]+)?(:([0-9]+))?([^ ]*)?"
 
 typedef struct http_message http_message_t;
+
+/**
+ * @brief Parse HTTP host (i.e http://localhost:8080)
+ *
+ * @param host Host string
+ * @param hostname Hostname (output)
+ * @param port Port (output)
+ * @param URI URI (output)
+ * @param https HTTPS (output) -- May not be used if port is specified or
+ * hostname does not contain the protocol. -1 for unknown, 0 for false, 1 for
+ * true
+ *
+ * @return int 0 on success, -1 on failure
+ */
+int http_parse_host(char *host, char **hostname, int *port, char **uri,
+                    int *https);
 
 /**
  * @brief Create a new HTTP message

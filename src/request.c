@@ -8,6 +8,7 @@
 
 #include "request.h"
 
+#include <ctype.h>
 #include <regex.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ request_t *request_recv(connection_t *connection) {
 
     // Parse the request line
     int status = request_header_parse(request);
+    DEBUG_PRINT("request_header_parse complete (%d)\n", status);
     if (status != 0) {
         request_free(request);
         return NULL;
@@ -57,10 +59,19 @@ int request_send(request_t *request, connection_t *connection) {
     // Prepare the host header
     char host[1024];
     memset(host, 0, 1024);
-    if (request->port != 0)
-        sprintf(host, "%s:%d", request->host, request->port);
-    else
+    if (request->port != -1) {
+        if (request->https != -1) {
+            if (request->https == 1) {
+                sprintf(host, "https://%s:%d", request->host, request->port);
+            } else {
+                sprintf(host, "http://%s:%d", request->host, request->port);
+            }
+        } else {
+            sprintf(host, "%s:%d", request->host, request->port);
+        }
+    } else {
         sprintf(host, "%s", request->host);
+    }
     http_message_header_set(request->message, "Host", host);
     // Send the request
     int status = http_message_send(request->message, connection);
@@ -116,20 +127,17 @@ int request_header_parse(request_t *request) {
     // Get the method
     request->method = strndup(header_line + uri_matches[1].rm_so,
                               uri_matches[1].rm_eo - uri_matches[1].rm_so);
-    DEBUG_PRINT(" -- METHOD: %s\n", request->method);
     // Get http vs https
     if (uri_matches[2].rm_so != -1) {
         if (strncmp(header_line + uri_matches[2].rm_so, "https", 5) == 0) {
             request->https = 1;
         }
     }
-    DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
     // Get the host
     if (uri_matches[3].rm_so != -1) {
         request->host = strndup(header_line + uri_matches[3].rm_so,
                                 uri_matches[3].rm_eo - uri_matches[3].rm_so);
     }
-    DEBUG_PRINT(" -- HOST: %s\n", request->host);
     // Get the port
     if (uri_matches[5].rm_so != -1) {
         char *port_str = strndup(header_line + uri_matches[5].rm_so,
@@ -139,7 +147,6 @@ int request_header_parse(request_t *request) {
     } else {
         request->port = 80;
     }
-    DEBUG_PRINT(" -- PORT: %d\n", request->port);
     // Get the uri
     if (uri_matches[6].rm_so != -1) {
         request->uri = strndup(header_line + uri_matches[6].rm_so,
@@ -147,22 +154,204 @@ int request_header_parse(request_t *request) {
     } else {
         request->uri = strdup("/");
     }
-    DEBUG_PRINT(" -- URI: %s\n", request->uri);
     // Get the http version
     if (uri_matches[7].rm_so != -1) {
         request->version = strndup(header_line + uri_matches[7].rm_so,
                                    uri_matches[7].rm_eo - uri_matches[7].rm_so);
     }
-    DEBUG_PRINT(" -- VERSION: %s\n", request->version);
 
     // Get the Host header
     char *host = http_message_header_get(message, "Host");
     if (host != NULL) {
-        request->host = strndup(host, strlen(host));
+        request->host  = strndup(host, strlen(host));
+        char *port_str = strchr(host, ':');
+        if (port_str != NULL) {
+            request->port = atoi(port_str + 1);
+            *port_str     = '\0';
+        }
     }
 
+    DEBUG_PRINT(" -- METHOD: %s\n", request->method);
+    DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
+    DEBUG_PRINT(" -- HOST: %s\n", request->host);
+    DEBUG_PRINT(" -- PORT: %d\n", request->port);
+    DEBUG_PRINT(" -- URI: %s\n", request->uri);
+    DEBUG_PRINT(" -- VERSION: %s\n", request->version);
+
     return 0;
-}
+} // int request_header_parse(request_t *request) {
+//     http_message_t *message = request->message;
+//     // Parse the request line using regex
+//     static int        regex_compiled = 0;
+//     static regex_t    uri_regex;
+//     static regmatch_t uri_matches[7];
+//     static int        r_status;
+//     if (regex_compiled == 0) {
+//         r_status = regcomp(&uri_regex, REQUEST_URI_REGEX, REG_EXTENDED);
+//         if (r_status != 0) {
+//             DEBUG_PRINT("Error compiling regex.\n");
+//             return -1;
+//         }
+//         regex_compiled = 1;
+//     }
+//     int   status;
+//     char *header_line = http_message_get_header_line(message);
+//     if (header_line == NULL) {
+//         DEBUG_PRINT("Error getting header line.\n");
+//         return -1;
+//     }
+//     DEBUG_PRINT(" -- HEADER: %s\n", header_line);
+//     status = regexec(&uri_regex, header_line, 8, uri_matches, 0);
+//     if (status != 0) {
+//         char error_message[1024];
+//         regerror(status, &uri_regex, error_message, 1024);
+//         DEBUG_PRINT("Error parsing request line: %s\n", error_message);
+//         return -1;
+//     }
+//     // Get the method
+//     if (uri_matches[1].rm_so != -1) {
+//         request->method = strndup(header_line + uri_matches[1].rm_so,
+//                                   uri_matches[1].rm_eo -
+//                                   uri_matches[1].rm_so);
+//     } else {
+//         request->method = NULL;
+//     }
+
+//     // Get http vs https
+//     if (uri_matches[2].rm_so != -1) {
+//         if (strncmp(header_line + uri_matches[2].rm_so, "https", 5) == 0) {
+//             request->https = 1;
+//         }
+//     // } else {
+//     //     request->https = -1;
+//     }
+
+//     // Get the host
+//     if (uri_matches[3].rm_so != -1) {
+//         request->host = strndup(header_line + uri_matches[3].rm_so,
+//                                 uri_matches[3].rm_eo - uri_matches[3].rm_so);
+//     // } else {
+//     //     request->host = strdup("");
+//     }
+
+//     // Get the port
+//     if (uri_matches[5].rm_so != -1) {
+//         char *port_str = strndup(header_line + uri_matches[5].rm_so,
+//                                  uri_matches[5].rm_eo -
+//                                  uri_matches[5].rm_so);
+//         request->port  = atoi(port_str);
+//         free(port_str);
+//     } else {
+//         request->port = -1;
+//     }
+
+//     // Get the uri
+//     if (uri_matches[6].rm_so != -1) {
+//         request->uri = strndup(header_line + uri_matches[6].rm_so,
+//                                uri_matches[6].rm_eo - uri_matches[6].rm_so);
+//     } else {
+//         request->uri = strdup("/");
+//     }
+//     DEBUG_PRINT(" -- URI: %s\n", request->uri);
+
+//     // Get the http version
+//     if (uri_matches[7].rm_so != -1) {
+//         request->version = strndup(header_line + uri_matches[7].rm_so,
+//                                    uri_matches[7].rm_eo -
+//                                    uri_matches[7].rm_so);
+//     }
+//     // } else {
+//     //     request->version = strdup("HTTP/1.1");
+//     // }
+
+//     // Get the Host header
+//     char *host_hdr = http_message_header_get(message, "Host");
+
+//     // if (host_hdr != NULL) {
+//     //     // If the host header is present, use it
+//     //     int   https, port;
+//     //     char *host = NULL;
+//     //     char *uri  = NULL;
+//     //     status     = http_parse_host(host_hdr, &host, &port, &uri,
+//     &https);
+//     //     if (status != 0) {
+//     //         DEBUG_PRINT("Error parsing host header.\n");
+//     //     } else {
+//     //         // Move the values to the request struct
+//     //         if (https != -1) {
+//     //             request->https = https;
+//     //         }
+//     //         if (port != -1) {
+//     //             request->port = port;
+//     //         }
+//     //         if (host != NULL) {
+//     //             if (request->host != NULL) {
+//     //                 free(request->host);
+//     //             }
+//     //             request->host = host;
+//     //         }
+//     //         if (uri != NULL) {
+//     //             if (strlen(uri) > strlen(request->uri)) {
+//     //                 if (request->uri != NULL) {
+//     //                     free(request->uri);
+//     //                 }
+//     //                 request->uri = uri;
+//     //             } else {
+//     //                 free(uri);
+//     //             }
+//     //         }
+//     //     }
+//     // }
+
+//     if (host_hdr != NULL) {
+//         char  *host      = strdup(host_hdr);
+//         char **saveptr   = NULL;
+//         char  *host_port = strtok_r(host, ":", saveptr);
+//         if (host_port != NULL) {
+//             if (request->host != NULL) {
+//                 free(request->host);
+//             }
+//             request->host = strdup(host_port);
+//             host_port     = strtok_r(NULL, ":", saveptr);
+//             if (host_port != NULL) {
+//                 request->port = atoi(host_port);
+//             }
+//         }
+//         free(host);
+//     }
+
+//     if (request->port == -1) {
+//         if (request->https == 1) {
+//             request->port = 443;
+//         } else {
+//             request->port = 80;
+//         }
+//     }
+
+//     DEBUG_PRINT(" -- METHOD: %s\n", request->method);
+//     DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
+//     DEBUG_PRINT(" -- HOST: %s\n", request->host);
+//     DEBUG_PRINT(" -- PORT: %d\n", request->port);
+//     DEBUG_PRINT(" -- URI: %s\n", request->uri);
+//     DEBUG_PRINT(" -- VERSION: %s\n", request->version);
+
+//     // #ifdef DEBUG
+//     //     // Print any whitespace in the request line
+//     //     DEBUG_PRINT(" -- WHITESPACE: ");
+//     //     char *w = request->host;
+//     //     while (*w != '\0') {
+//     //         if (isspace(*w)) {
+//     //             DEBUG_PRINT(".");
+//     //         } else {
+//     //             DEBUG_PRINT("%c", *w);
+//     //         }
+//     //         w++;
+//     //     }
+//     //     DEBUG_PRINT("\n");
+//     // #endif
+
+//     return 0;
+// }
 
 /**
  * Returns 1 if the request is a keep-alive connection, 0 otherwise.
@@ -212,17 +401,17 @@ request_t *request_new() {
     request->host      = NULL;
     request->method    = NULL;
     request->version   = NULL;
-    request->https     = 0;
-    request->port      = 0;
+    request->https     = -1;
+    request->port      = -1;
     return request;
 }
 
 /**
  * @brief Determine if a request is cacheable
- * 
+ *
  * @param request Request to check
  * @return int 1 if cacheable, 0 otherwise
-*/
+ */
 int request_is_cacheable(request_t *request) {
     // Check if the request is cacheable
     if (request->method == NULL || strcmp(request->method, "GET") != 0) {

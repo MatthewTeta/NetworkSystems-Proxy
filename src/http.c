@@ -9,6 +9,7 @@
 
 #include <ctype.h>
 #include <poll.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,82 @@ void http_message_header_set_(http_message_t *message, char *key, char *value,
                               int search);
 http_header_t *http_message_header_search(http_message_t *message,
                                           const char *key, int *index);
+
+/**
+ * @brief Parse HTTP host (i.e http://localhost:8080)
+ *
+ * @param host Host string
+ * @param hostname Hostname (output)
+ * @param port Port (output) -- -1 for unknown
+ * @param URI URI (output)
+ * @param https HTTPS (output) -- May not be used if port is specified or
+ * hostname does not contain the protocol. -1 for unknown, 0 for false, 1 for
+ * true
+ *
+ * @return int 0 on success, -1 on failure
+ */
+int http_parse_host(char *host, char **hostname, int *port, char **uri,
+                    int *https) {
+    static int     regex_initialized = 0;
+    static int     regex_error       = 0;
+    static regex_t regex;
+    if (!regex_initialized) {
+        if ((regex_error = regcomp(&regex, HTTP_HOST_REGEX, REG_EXTENDED))) {
+            char *error = malloc(256);
+            regerror(regex_error, &regex, error, 256);
+            DEBUG_PRINT("Failed to compile regex: %s", error);
+            free(error);
+            return -1;
+        }
+        regex_initialized = 1;
+    }
+
+    regmatch_t matches[6];
+    if (regexec(&regex, host, 6, matches, 0)) {
+        DEBUG_PRINT("Failed to match regex");
+        return -1;
+    }
+
+    // Hostname
+    if (matches[2].rm_so != -1) {
+        *hostname = strndup(host + matches[2].rm_so,
+                            matches[2].rm_eo - matches[2].rm_so);
+    } else {
+        *hostname = NULL;
+    }
+
+    // Port
+    if (matches[4].rm_so != -1) {
+        *port = atoi(host + matches[4].rm_so);
+    } else {
+        *port = -1;
+    }
+
+    // URI
+    if (matches[5].rm_so != -1) {
+        // *uri = malloc(matches[5].rm_eo - matches[5].rm_so + 1);
+        // strncpy(*uri, host + matches[5].rm_so,
+        //         matches[5].rm_eo - matches[5].rm_so);
+        // (*uri)[matches[5].rm_eo - matches[5].rm_so] = '\0';
+        *uri = strndup(host + matches[5].rm_so,
+                       matches[5].rm_eo - matches[5].rm_so);
+    } else {
+        *uri = strdup("/");
+    }
+
+    // HTTPS
+    if (matches[1].rm_so != -1) {
+        if (strncmp(host + matches[1].rm_so, "https", 5) == 0) {
+            *https = 1;
+        } else {
+            *https = 0;
+        }
+    } else {
+        *https = -1;
+    }
+
+    return 0;
+}
 
 /**
  * @brief HTTP message structure
@@ -167,9 +244,11 @@ http_message_t *http_message_recv(connection_t *connection) {
         message->body = strstr(message->message + search_start, "\r\n\r\n");
         // DEBUG_PRINT("strstr \\r\\n\\r\\n RV: %p\n", rv);
         if (message->body != NULL) {
+            // We actually have to set this again after all calls to
+            // realloc.....
             message->body += 4;
             message->header_len = message->body - message->message;
-            // Exit hte loop
+            // Exit the loop
             header_complete = 1;
         }
     }
@@ -210,11 +289,13 @@ http_message_t *http_message_recv(connection_t *connection) {
     // }
     // Allocate space for the body
     if (message->body_len > 0) {
-        message->message_size +=
-            ((message->header_len + message->body_len) / MESSAGE_CHUNK_SIZE) *
-            MESSAGE_CHUNK_SIZE;
-        DEBUG_PRINT("message->message_size: %ld\n", message->message_size);
-        message->message = realloc(message->message, message->message_size);
+        // message->message_size +=
+        //     ((message->header_len + message->body_len) / MESSAGE_CHUNK_SIZE)
+        //     * MESSAGE_CHUNK_SIZE;
+        // DEBUG_PRINT("message->message_size: %ld\n", message->message_size);
+        // message->message = realloc(message->message, message->message_size);
+        message->message =
+            realloc(message->message, message->header_len + message->body_len);
         // memset(message->message + message->message_len, 0,
         //        message->message_size - message->message_len);
     }
@@ -255,6 +336,9 @@ http_message_t *http_message_recv(connection_t *connection) {
         }
         // fflush(message->fp);
     }
+
+    // Move the body pointer to the correct location
+    message->body = message->message + message->header_len;
 
     // DEBUG_PRINT("\n\nRead body (%lu):\n", message->body_len);
     // DEBUG_PRINT("%s\n\n", message->body);
@@ -529,6 +613,7 @@ int http_message_header_remove(http_message_t *message, char *key) {
     // Shift headers down
     memmove(header, header + 1,
             sizeof(http_header_t) * (headers->count - i - 1));
+    headers->count--;
     return 0;
 }
 
