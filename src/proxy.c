@@ -158,12 +158,14 @@ void handle_client(connection_t *connection) {
         request = request_parse(message);
         if (request == NULL) {
             DEBUG_PRINT("Error: Failed to parse the request\n");
+            response_send_error(connection, 400, "Bad Request");
             exit_child(connection);
         }
 
         // Check if the request is in the blocklist
         if (blocklist_check(blocklist, request->host)) {
             // Send a 403 Forbidden response
+            response_send_error(connection, 403, "Forbidden");
             DEBUG_PRINT("Error: Request is in the blocklist\n");
             // response_send(NULL, connection);
             // continue;
@@ -194,6 +196,9 @@ void handle_client(connection_t *connection) {
             response = response_fetch(request);
             if (response == NULL) {
                 // Send a 504 Gateway Timeout response
+                // This may be another error
+                // TODO: Check if this is the correct error
+                response_send_error(connection, 504, "Gateway Timeout");
                 // response_send(NULL, clientfd);
                 DEBUG_PRINT(
                     "Error: Failed to get the response from the server\n");
@@ -218,6 +223,7 @@ void handle_client(connection_t *connection) {
             // If the response is NULL, then the response is not in the cache
             if (response == NULL) {
                 // Send a 504 Gateway Timeout response
+                response_send_error(connection, 504, "Gateway Timeout");
                 // response_send(NULL, clientfd);
                 DEBUG_PRINT(
                     "Error: Failed to get the response from the cache\n");

@@ -39,7 +39,7 @@ response_t *response_recv(connection_t *connection) {
         free(response);
         return NULL;
     }
-    response->message                = response_message;
+    response->message = response_message;
     response_header_parse(response);
 
     return response;
@@ -84,9 +84,10 @@ int response_send(response_t *response, connection_t *connection) {
     int rv;
     // create the response message
     http_message_t *message = response->message;
-    char            header_line[1024];
-    sprintf(header_line, "%s %d %s\r\n", response->version,
-            response->status_code, response->reason);
+    char            header_line[4096];
+    snprintf(header_line, 4096, "%s %d %s\r\n", response->version,
+             response->status_code, response->reason);
+    DEBUG_PRINT("--> %s", header_line);
     http_message_set_header_line(message, header_line);
     rv = http_message_send(message, connection);
     if (rv != 0) {
@@ -166,9 +167,6 @@ void response_free(response_t *response) {
     if (response->message != NULL) {
         http_message_free(response->message);
     }
-    if (response->reason != NULL) {
-        free(response->reason);
-    }
     free(response);
 }
 
@@ -190,4 +188,88 @@ response_t *response_parse(http_message_t *message) {
         return NULL;
     }
     return response;
+}
+
+/**
+ * @brief Create a response
+ *
+ * @param status_code Status code
+ * @param reason Reason
+ * @return response_t* Response
+ */
+response_t *response_create(int status_code, char *reason) {
+    response_t *response = malloc(sizeof(response_t));
+    memset(response, 0, sizeof(response_t));
+    http_message_t *message = http_message_create();
+    if (message == NULL) {
+        fprintf(stderr, "Could not create message\n");
+        free(response);
+        return NULL;
+    }
+    response->message     = message;
+    response->status_code = status_code;
+    response->reason      = strdup(reason);
+    response->version     = strdup("HTTP/1.1");
+    return response;
+}
+
+/**
+ * @brief Set the response body
+ *
+ * @param response Response to set body of
+ * @param body Body to set
+ * @param len Length of body
+ *
+ * @return int 0 on success, -1 on failure
+ */
+int response_set_body(response_t *response, char *body, size_t len) {
+    if (response->message == NULL) {
+        fprintf(stderr, "Response message is null\n");
+        return -1;
+    }
+    http_message_set_body(response->message, body, len);
+    return 0;
+}
+
+/**
+ * @brief Set the response body
+ *
+ * @param response Response to set body of
+ * @param f File to read from
+ *
+ * @return int 0 on success, -1 on failure
+ */
+int response_set_body_f(response_t *response, FILE *f) {
+    if (response->message == NULL) {
+        fprintf(stderr, "Response message is null\n");
+        return -1;
+    }
+    http_message_set_body_f(response->message, f);
+    return 0;
+}
+
+/**
+ * @brief Send an error response
+ * 
+ * @param connection Connection to send response on
+ * @param status_code Status code
+ * @param reason Reason
+ * 
+ * @return int 0 on success, -1 on failure
+*/
+int response_send_error(connection_t *connection, int status_code, char *reason) {
+    response_t *response = response_create(status_code, reason);
+    if (response == NULL) {
+        fprintf(stderr, "Could not create response\n");
+        return -1;
+    }
+    response_set_body(response, reason, strlen(reason));
+    int rv = response_send(response, connection);
+    if (rv != 0) {
+        fprintf(stderr, "Could not send response\n");
+        response_free(response);
+        return -1;
+    }
+    response_free(response);
+    return 0;
 }

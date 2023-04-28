@@ -41,6 +41,23 @@ typedef struct http_headers {
     http_header_t *headers; // Array of headers
 } http_headers_t;
 
+/**
+ * @brief HTTP message structure
+ *
+ * @note This structure is used for both requests and responses
+ */
+struct http_message {
+    char           *message;      // message buffer
+    size_t          message_size; // message buffer size
+    size_t          message_len;  // message string length
+    char           *header_line;  // message line
+    size_t          header_len;   // message header length
+    FILE           *body_f;       // message body file
+    char           *body;         // message body
+    size_t          body_len;     // message body length
+    http_headers_t *headers;      // message headers
+};
+
 // Private functions
 void http_headers_parse(http_message_t *message);
 int  http_headers_send(http_headers_t *headers, connection_t *connection);
@@ -125,22 +142,6 @@ int http_parse_host(char *host, char **hostname, int *port, char **uri,
     return 0;
 }
 
-/**
- * @brief HTTP message structure
- *
- * @note This structure is used for both requests and responses
- */
-struct http_message {
-    char           *message;      // message buffer
-    size_t          message_size; // message buffer size
-    size_t          message_len;  // message string length
-    char           *header_line;  // message line
-    size_t          header_len;   // message header length
-    char           *body;         // message body
-    size_t          body_len;     // message body length
-    http_headers_t *headers;      // message headers
-};
-
 // Private functions
 void http_headers_free(http_headers_t *headers);
 
@@ -149,22 +150,24 @@ void http_headers_free(http_headers_t *headers);
 /**
  * @brief Create a new HTTP message
  *
- * @param data Message data
- * @param size Message size
  * @return http_message_t* HTTP message
  */
-http_message_t *http_message_create(char *data, size_t size) {
+http_message_t *http_message_create() {
     http_message_t *message = malloc(sizeof(http_message_t));
     memset(message, 0, sizeof(http_message_t));
-    message->message      = data;
-    message->message_size = size;
-    message->message_len  = size;
+    // Allocate a new headers struct (vector<http_header_t>)
+    message->headers        = malloc(sizeof(http_headers_t));
+    http_headers_t *headers = message->headers;
+    // Allocate space for the headers
+    headers->headers =
+        malloc(sizeof(http_header_t) * HTTP_HEADER_COUNT_DEFAULT);
+    headers->count = 0;
+    headers->size  = HTTP_HEADER_COUNT_DEFAULT;
     return message;
 }
 
 http_message_t *http_message_recv(connection_t *connection) {
-    http_message_t *message = malloc(sizeof(http_message_t));
-    memset(message, 0, sizeof(http_message_t));
+    http_message_t *message = http_message_create();
 
     // Read the message into the message buffer
     ssize_t bytes_read;
@@ -213,6 +216,12 @@ http_message_t *http_message_recv(connection_t *connection) {
         } else if (rv == 0) {
             // Timeout -> close connection
             DEBUG_PRINT("Timeout occured in http_message_recv()\n");
+            DEBUG_PRINT("RECIEVED (%lu): \n%s\n\n", message->message_len,
+                        message->message);
+            if (message->message_len == 0) {
+                close_connection(connection);
+                exit(-1);
+            }
             http_message_free(message);
             return NULL;
         }
@@ -274,11 +283,11 @@ http_message_t *http_message_recv(connection_t *connection) {
         message->body_len = 0;
         http_message_header_set(message, "Content-Length", "0");
     }
-    DEBUG_PRINT("Header length: %lu, Body length: %lu, (a+b)(%lu), Message "
-                "len: %lu, Message size: %lu\n",
-                message->header_len, message->body_len,
-                message->header_len + message->body_len, message->message_len,
-                message->message_size);
+    // DEBUG_PRINT("Header length: %lu, Body length: %lu, (a+b)(%lu), Message "
+    //             "len: %lu, Message size: %lu\n",
+    //             message->header_len, message->body_len,
+    //             message->header_len + message->body_len,
+    //             message->message_len, message->message_size);
     // TODO: Check if the body is too long
     // if (message->body_len > HTTP_MAX_BODY_LEN) {
     //     DEBUG_PRINT("Body is too long.\n");
@@ -374,7 +383,14 @@ int http_message_send(http_message_t *message, connection_t *connection) {
     http_headers_send(message->headers, connection);
     // Send the body
     if (message->body_len > 0) {
-        send_to_connection(connection, message->body, message->body_len);
+        if (message->body_f != NULL) {
+            // Send the body from a file
+            send_to_connection_f(connection, message->body_f,
+                                 message->body_len);
+        } else if (message->body != NULL) {
+            // Send the body from a buffer
+            send_to_connection(connection, message->body, message->body_len);
+        }
     }
     return 0;
 }
@@ -412,14 +428,7 @@ void http_message_free(http_message_t *message) {
  * @return http_headers_t* Parsed headers
  */
 void http_headers_parse(http_message_t *message) {
-    // Allocate a new headers struct (vector<http_header_t>)
-    message->headers        = malloc(sizeof(http_headers_t));
     http_headers_t *headers = message->headers;
-    // Allocate space for the headers
-    headers->headers =
-        malloc(sizeof(http_header_t) * HTTP_HEADER_COUNT_DEFAULT);
-    headers->count = 0;
-    headers->size  = HTTP_HEADER_COUNT_DEFAULT;
     // Make a copy of the header buffer so we can modify it
     char *header_buf = malloc(message->header_len + 1);
     memcpy(header_buf, message->message, message->header_len);
@@ -451,14 +460,14 @@ void http_headers_parse(http_message_t *message) {
         }
         if (key == NULL || val == NULL) {
             // Malformed header
-            DEBUG_PRINT("Malformed header: %s\n", line);
+            // DEBUG_PRINT("Malformed header: %s\n", line);
             free(line_copy); // free the copy of line
             http_headers_free(headers);
             free(header_buf);
             return;
             // continue;
         }
-        DEBUG_PRINT("HEADER -- %s: %s\n", key, val);
+        // DEBUG_PRINT("HEADER -- %s: %s\n", key, val);
         http_message_header_set_(message, key, val, 0);
         free(line_copy); // free the copy of line
         line = strtok_r(NULL, "\r\n", &saveptr1);
@@ -496,13 +505,32 @@ char *http_message_get_header_line(http_message_t *message) {
  * @param message HTTP message
  * @param body Body
  * @param len Length of body
- * @return char* Body
  */
 void http_message_set_body(http_message_t *message, char *body, size_t len) {
     message->body     = body;
     message->body_len = len;
     char body_length[16];
     sprintf(body_length, "%zu", len);
+    http_message_header_set(message, "Content-Length", body_length);
+}
+
+/**
+ * @brief Set the body from an HTTP message
+ *
+ * @param message HTTP message
+ * @param f File
+ */
+void http_message_set_body_f(http_message_t *message, FILE *f) {
+    message->body_f = f;
+    // Get the length of the file
+    fseek(f, 0, SEEK_END);
+    size_t len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    // DEBUG_PRINT("File length: %zu\n", len);
+    message->body_len = len;
+    char body_length[16];
+    sprintf(body_length, "%zu", len);
+    // DEBUG_PRINT("Body length: %s\n", body_length);
     http_message_header_set(message, "Content-Length", body_length);
 }
 

@@ -14,7 +14,7 @@ SOURCES = $(SRCDIR)/md5.c $(SRCDIR)/cache.c $(SRCDIR)/blocklist.c $(SRCDIR)/IP.c
 OBJECTS = $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SOURCES))
 EXECUTABLE = main
 
-all: mkdirs $(EXECUTABLE)
+all: clean mkdirs $(EXECUTABLE)
 
 mkdirs:
 	mkdir -p $(OBJDIR) $(LIBDIR) $(SRCDIR)

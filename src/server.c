@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -69,7 +70,7 @@ void server_start(server_config_t server_config) {
         fprintf(stderr, "Error: Failed to create socket\n");
         exit(1);
     }
-    DEBUG_PRINT("Created socket\n");
+    // DEBUG_PRINT("Created socket\n");
 #ifdef DEBUG
     // Set the socket options to reuse the address
     int opt = 1;
@@ -90,13 +91,13 @@ void server_start(server_config_t server_config) {
         fprintf(stderr, "Error: Failed to bind socket\n");
         exit(1);
     }
-    DEBUG_PRINT("Bound socket\n");
+    // DEBUG_PRINT("Bound socket\n");
     // Listen on the socket
     if (listen(server.serverfd, 10) < 0) {
         fprintf(stderr, "Error: Failed to listen on socket\n");
         exit(1);
     }
-    DEBUG_PRINT("Listening on socket\n");
+    DEBUG_PRINT("Listening on socket %d\n", server.port);
     stop_server = 0;
     // Accept connections
     while (!stop_server) {
@@ -125,7 +126,7 @@ void server_start(server_config_t server_config) {
         //         }
         //     }
         // }
-        DEBUG_PRINT("Waiting for connection\n");
+        // DEBUG_PRINT("Waiting for connection\n");
         // Accept the connection
         connection_t *connection = malloc(sizeof(connection_t));
         memset(connection, 0, sizeof(connection_t));
@@ -134,33 +135,35 @@ void server_start(server_config_t server_config) {
         connection->addr_len           = sizeof(struct sockaddr_in);
         connection->fd =
             accept(server.serverfd, (struct sockaddr *)c_addr_in, c_addr_len);
-        DEBUG_PRINT("Accepted connection\n");
+        // DEBUG_PRINT("Accepted connection\n");
         if (connection->fd < 0) {
             fprintf(stderr, "Error: Failed to accept connection\n");
             exit(1);
         }
         // Fork the process to handle the request
-        pid_t pid = fork();
-        // pid_t pid = 0;
-        if (pid < 0) {
-            fprintf(stderr, "Error: Failed to fork process\n");
-            exit(1);
+        if (server.forking) {
+            pid_t pid = fork();
+            // pid_t pid = 0;
+            if (pid < 0) {
+                fprintf(stderr, "Error: Failed to fork process\n");
+                exit(1);
+            }
+            if (pid) {
+                // Parent process
+                // Append the child process to the list of child processes
+                // if (child_pids == NULL) {
+                //     child_pids = pid_list_create(pid);
+                // } else {
+                //     pid_list_append(child_pids, pid);
+                // }
+                // pid_list_print(child_pids);
+                close(connection->fd);
+                continue;
+            }
+            // DEBUG_PRINT("IN CHILD PROCESS: %d\n", pid);
+            parent = 0;
+            close(server.serverfd);
         }
-        if (pid) {
-            // Parent process
-            // Append the child process to the list of child processes
-            // if (child_pids == NULL) {
-            //     child_pids = pid_list_create(pid);
-            // } else {
-            //     pid_list_append(child_pids, pid);
-            // }
-            // pid_list_print(child_pids);
-            close(connection->fd);
-            continue;
-        }
-        DEBUG_PRINT("IN CHILD PROCESS: %d\n", pid);
-        parent = 0;
-        close(server.serverfd);
         // Get the client's address
         // char           *hostaddrp;
         // struct hostent *hostp;
@@ -190,9 +193,9 @@ void server_start(server_config_t server_config) {
             //        hostaddrp);
         }
         // Call the request handler
-        while (1) {
-            server.handle_client(connection);
-            close_connection(connection);
+        server.handle_client(connection);
+        close_connection(connection);
+        if (server.forking) {
             exit(0);
         }
     }
@@ -293,7 +296,7 @@ connection_t *connect_to_hostname(char *host, int port) {
         free(connection);
         return NULL;
     }
-    DEBUG_PRINT("Created socket %d\n", connection->fd);
+    // DEBUG_PRINT("Created socket %d\n", connection->fd);
 
     // Connect to the server
     status = connect(connection->fd, (struct sockaddr *)res->ai_addr,
@@ -348,8 +351,58 @@ ssize_t send_to_connection(connection_t *connection, char *msg,
             return -1;
         }
         if (sent == 0) {
-            DEBUG_PRINT("Sent 0 bytes in send_to_connection... \n");
+            // DEBUG_PRINT("Sent 0 bytes in send_to_connection... \n");
+            break;
         }
+        bytes_sent += sent;
+    }
+    return bytes_sent;
+}
+
+/**
+ * @brief Send a file to a connection (guarentees all bytes are sent)
+ * @param connection Connection
+ * @param file File to send
+ * @param msg_len Length of message
+ *
+ * @return ssize_t Number of bytes sent or -1 on error
+ */
+ssize_t send_to_connection_f(connection_t *connection, FILE *file,
+                             size_t msg_len) {
+    if (connection == NULL) {
+        fprintf(stderr, "Error: Connection is NULL\n");
+        return -1;
+    }
+    if (file == NULL) {
+        fprintf(stderr, "Error: File is NULL\n");
+        return -1;
+    }
+    if (msg_len == 0) {
+        fprintf(stderr, "Error: Message length is 0\n");
+        return -1;
+    }
+    int fd = fileno(file);
+    if (fd < 0) {
+        fprintf(stderr, "Error: Failed to get file descriptor\n");
+        return -1;
+    }
+    // Seek to the beginning of the file
+    off_t off = lseek(fd, 0, SEEK_SET);
+    fseek(file, 0, SEEK_SET);
+    ssize_t bytes_sent = 0;
+    while (bytes_sent < msg_len) {
+        ssize_t sent = sendfile(connection->fd, fd, &off, msg_len - bytes_sent);
+        if (sent < 0) {
+            fprintf(stderr, "Error: Failed to send message\n");
+            return -1;
+        }
+        if (sent == 0) {
+            // Print the error
+            perror("Error: Failed to send message (0) ");
+            // DEBUG_PRINT("Sent 0 bytes in send_to_connection_f... \n");
+            break;
+        }
+        off += sent;
         bytes_sent += sent;
     }
     return bytes_sent;

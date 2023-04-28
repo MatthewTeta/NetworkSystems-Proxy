@@ -16,6 +16,7 @@
 
 #include "server.h"
 
+#define HTTP_VERSION                 "HTTP/1.1"
 #define HTTP_HEADER_COUNT_DEFAULT    16
 #define MESSAGE_CHUNK_SIZE           1024
 #define KEEP_ALIVE_TIMEOUT_MS        10000
@@ -44,11 +45,9 @@ int http_parse_host(char *host, char **hostname, int *port, char **uri,
 /**
  * @brief Create a new HTTP message
  *
- * @param data Message data
- * @param size Message size
  * @return http_message_t* HTTP message
  */
-http_message_t *http_message_create(char *data, size_t size);
+http_message_t *http_message_create();
 
 /**
  * @brief Recv an HTTP message from a connection
@@ -98,6 +97,14 @@ char *http_message_get_header_line(http_message_t *message);
  * @return char* Body
  */
 void http_message_set_body(http_message_t *message, char *body, size_t len);
+
+/**
+ * @brief Set the body from an HTTP message
+ *
+ * @param message HTTP message
+ * @param f File
+ */
+void http_message_set_body_f(http_message_t *message, FILE *f);
 
 /**
  * @brief Get the body from an HTTP message

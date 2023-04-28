@@ -31,11 +31,14 @@ request_t *request_recv(connection_t *connection) {
 
     // Parse the request line
     int status = request_header_parse(request);
-    DEBUG_PRINT("request_header_parse complete (%d)\n", status);
+    // DEBUG_PRINT("request_header_parse complete (%d)\n", status);
     if (status != 0) {
         request_free(request);
         return NULL;
     }
+
+    DEBUG_PRINT("<-- %s %s %s\n", request->method, request->uri,
+                request->version);
 
     return request;
 }
@@ -54,7 +57,7 @@ int request_send(request_t *request, connection_t *connection) {
     memset(request_line, 0, 1024);
     sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
             request->version);
-    DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
+    // DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
     http_message_set_header_line(request->message, request_line);
     // Prepare the host header
     char host[1024];
@@ -102,62 +105,87 @@ void request_free(request_t *request) {
 
 // Private function definitions
 int request_header_parse(request_t *request) {
-    http_message_t *message = request->message;
-    // Parse the request line using regex
-    regex_t    uri_regex;
-    regmatch_t uri_matches[7];
-    int        status = regcomp(&uri_regex, REQUEST_URI_REGEX, REG_EXTENDED);
-    if (status != 0) {
-        DEBUG_PRINT("Error compiling regex.\n");
-        return -1;
+    static int initialized = 0;
+    regex_t    req_reg;
+    if (!initialized) {
+        initialized = 1;
+        // Parse the request line using regex
+        int reg_status = regcomp(&req_reg, REQUEST_REGEX, REG_EXTENDED);
+        if (reg_status != 0) {
+            DEBUG_PRINT("Error compiling regex.\n");
+            return -1;
+        }
     }
-    char *header_line = http_message_get_header_line(message);
+    http_message_t *message = request->message;
+    regmatch_t      uri_matches[REQUEST_REGEX_INDEX_COUNT];
+    int             status      = 0;
+    char           *header_line = http_message_get_header_line(message);
     if (header_line == NULL) {
         DEBUG_PRINT("Error getting header line.\n");
         return -1;
     }
     // DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
-    status = regexec(&uri_regex, header_line, 8, uri_matches, 0);
+    status = regexec(&req_reg, header_line, REQUEST_REGEX_INDEX_COUNT,
+                     uri_matches, 0);
     if (status != 0) {
         char error_message[1024];
-        regerror(status, &uri_regex, error_message, 1024);
+        regerror(status, &req_reg, error_message, 1024);
         DEBUG_PRINT("Error parsing request line: %s\n", error_message);
         return -1;
     }
     // Get the method
-    request->method = strndup(header_line + uri_matches[1].rm_so,
-                              uri_matches[1].rm_eo - uri_matches[1].rm_so);
+    request->method =
+        strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_METHOD].rm_so,
+                uri_matches[REQUEST_REGEX_INDEX_METHOD].rm_eo -
+                    uri_matches[REQUEST_REGEX_INDEX_METHOD].rm_so);
     // Get http vs https
-    if (uri_matches[2].rm_so != -1) {
-        if (strncmp(header_line + uri_matches[2].rm_so, "https", 5) == 0) {
+    if (uri_matches[REQUEST_REGEX_INDEX_PROTOCOL].rm_so != -1) {
+        if (strncmp(header_line +
+                        uri_matches[REQUEST_REGEX_INDEX_PROTOCOL].rm_so,
+                    "https", 5) == 0) {
             request->https = 1;
         }
     }
     // Get the host
-    if (uri_matches[3].rm_so != -1) {
-        request->host = strndup(header_line + uri_matches[3].rm_so,
-                                uri_matches[3].rm_eo - uri_matches[3].rm_so);
+    if (uri_matches[REQUEST_REGEX_INDEX_HOSTNAME].rm_so != -1) {
+        request->host = strndup(
+            header_line + uri_matches[REQUEST_REGEX_INDEX_HOSTNAME].rm_so,
+            uri_matches[REQUEST_REGEX_INDEX_HOSTNAME].rm_eo -
+                uri_matches[REQUEST_REGEX_INDEX_HOSTNAME].rm_so);
     }
     // Get the port
-    if (uri_matches[5].rm_so != -1) {
-        char *port_str = strndup(header_line + uri_matches[5].rm_so,
-                                 uri_matches[5].rm_eo - uri_matches[5].rm_so);
-        request->port  = atoi(port_str);
+    if (uri_matches[REQUEST_REGEX_INDEX_PORT].rm_so != -1) {
+        char *port_str =
+            strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_PORT].rm_so,
+                    uri_matches[REQUEST_REGEX_INDEX_PORT].rm_eo -
+                        uri_matches[REQUEST_REGEX_INDEX_PORT].rm_so);
+        request->port = atoi(port_str);
         free(port_str);
     } else {
         request->port = 80;
     }
     // Get the uri
-    if (uri_matches[6].rm_so != -1) {
-        request->uri = strndup(header_line + uri_matches[6].rm_so,
-                               uri_matches[6].rm_eo - uri_matches[6].rm_so);
+    if (uri_matches[REQUEST_REGEX_INDEX_PATH].rm_so != -1) {
+        request->uri =
+            strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_PATH].rm_so,
+                    uri_matches[REQUEST_REGEX_INDEX_PATH].rm_eo -
+                        uri_matches[REQUEST_REGEX_INDEX_PATH].rm_so);
     } else {
         request->uri = strdup("/");
     }
+    // Get the query string
+    if (uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so != -1) {
+        request->query =
+            strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so,
+                    uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_eo -
+                        uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so);
+    }
     // Get the http version
-    if (uri_matches[7].rm_so != -1) {
-        request->version = strndup(header_line + uri_matches[7].rm_so,
-                                   uri_matches[7].rm_eo - uri_matches[7].rm_so);
+    if (uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_so != -1) {
+        request->version = strndup(
+            header_line + uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_so,
+            uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_eo -
+                uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_so);
     }
 
     // Get the Host header
@@ -176,6 +204,7 @@ int request_header_parse(request_t *request) {
     DEBUG_PRINT(" -- HOST: %s\n", request->host);
     DEBUG_PRINT(" -- PORT: %d\n", request->port);
     DEBUG_PRINT(" -- URI: %s\n", request->uri);
+    DEBUG_PRINT(" -- QUERY: %s\n", request->query);
     DEBUG_PRINT(" -- VERSION: %s\n", request->version);
 
     return 0;
@@ -183,11 +212,11 @@ int request_header_parse(request_t *request) {
 //     http_message_t *message = request->message;
 //     // Parse the request line using regex
 //     static int        regex_compiled = 0;
-//     static regex_t    uri_regex;
+//     static regex_t    req_reg;
 //     static regmatch_t uri_matches[7];
 //     static int        r_status;
 //     if (regex_compiled == 0) {
-//         r_status = regcomp(&uri_regex, REQUEST_URI_REGEX, REG_EXTENDED);
+//         r_status = regcomp(&req_reg, REQUEST_URI_REGEX, REG_EXTENDED);
 //         if (r_status != 0) {
 //             DEBUG_PRINT("Error compiling regex.\n");
 //             return -1;
@@ -201,10 +230,10 @@ int request_header_parse(request_t *request) {
 //         return -1;
 //     }
 //     DEBUG_PRINT(" -- HEADER: %s\n", header_line);
-//     status = regexec(&uri_regex, header_line, 8, uri_matches, 0);
+//     status = regexec(&req_reg, header_line, 8, uri_matches, 0);
 //     if (status != 0) {
 //         char error_message[1024];
-//         regerror(status, &uri_regex, error_message, 1024);
+//         regerror(status, &req_reg, error_message, 1024);
 //         DEBUG_PRINT("Error parsing request line: %s\n", error_message);
 //         return -1;
 //     }

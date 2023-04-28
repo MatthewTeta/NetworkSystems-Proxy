@@ -19,9 +19,37 @@
 #include "http.h"
 #include "server.h"
 
-#define REQUEST_URI_REGEX                                                      \
-    "(\\w+)[ ]+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^ ]*)?[ ]+(HTTP\\/"        \
-    "[0-9\\]+\\.?[0-9]+)"
+// #define REQUEST_REGEX_PATH "([^ \\?]*)?"
+
+#define REQUEST_REGEX_WHITESPACE     "[ \t]+"
+#define REQUEST_REGEX_METHOD         "(GET|POST)"
+#define REQUEST_REGEX_PROTOCOL       "(http[s]?://)?"
+#define REQUEST_REGEX_HOSTNAME       "([^/:\\?]+)?"
+#define REQUEST_REGEX_PORT           "(:([0-9]+))?"
+#define REQUEST_REGEX_PATH           "([^ \\?]*)"
+#define REQUEST_REGEX_QUERY          "(\\?([^ ]*))?"
+#define REQUEST_REGEX_VERSION        "(HTTP/[0-9]+\\.?[0-9]*)"
+#define REQUEST_REGEX_INDEX_METHOD   1
+#define REQUEST_REGEX_INDEX_PROTOCOL 2
+#define REQUEST_REGEX_INDEX_HOSTNAME 3
+#define REQUEST_REGEX_INDEX_PORT     5
+#define REQUEST_REGEX_INDEX_PATH     6
+#define REQUEST_REGEX_INDEX_QUERY    8
+#define REQUEST_REGEX_INDEX_VERSION  9
+#define REQUEST_REGEX_INDEX_COUNT    10
+#define REQUEST_REGEX                                                          \
+    REQUEST_REGEX_METHOD REQUEST_REGEX_WHITESPACE REQUEST_REGEX_PROTOCOL       \
+        REQUEST_REGEX_HOSTNAME REQUEST_REGEX_PORT REQUEST_REGEX_PATH           \
+            REQUEST_REGEX_QUERY REQUEST_REGEX_WHITESPACE REQUEST_REGEX_VERSION
+// #define REQUEST_REGEX
+//     REQUEST_REGEX_METHOD REQUEST_REGEX_WHITESPACE REQUEST_REGEX_PROTOCOL
+//         REQUEST_REGEX_HOSTNAME REQUEST_REGEX_PORT REQUEST_REGEX_PATH
+//             REQUEST_REGEX_QUERY REQUEST_REGEX_WHITESPACE
+//             REQUEST_REGEX_VERSION
+
+// #define REQUEST_REGEX_URI
+//     "(\\w+)[ ]+(http[s]?://)?([^/:]+)?(:([0-9]+))?([^ \\?]*)?(\\?[^ ]+)?[ "
+//     "]+(HTTP\\/[0-9]+\\.?[0-9]+)"
 
 /**
  * @brief Request structure
@@ -34,6 +62,7 @@ typedef struct request {
     char           *host;    // Request host
     char           *method;  // Request method
     char           *uri;     // Request URI
+    char           *query;   // Request query string
     char           *version; // Request version
 } request_t;
 

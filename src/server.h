@@ -16,6 +16,7 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdio.h>
 
 /**
  * @brief Connection structure
@@ -41,12 +42,14 @@ typedef struct connection {
  *
  * @param port Port to listen on
  * @param verbose Verbose mode
+ * @param forking Forking mode
  * @param handle_client Connection handler
  */
 typedef struct server_config {
     int serverfd;
     int port;
     int verbose;
+    int forking;
     void (*handle_client)(connection_t *connection);
 } server_config_t;
 
@@ -95,5 +98,16 @@ connection_t *connect_to_hostname(char *host, int port);
  * @return ssize_t Number of bytes sent or -1 on error
  */
 ssize_t send_to_connection(connection_t *connection, char *msg, size_t msg_len);
+
+/**
+ * @brief Send a file to a connection (guarentees all bytes are sent)
+ * @param connection Connection
+ * @param file File to send
+ * @param msg_len Length of message
+ *
+ * @return ssize_t Number of bytes sent or -1 on error
+ */
+ssize_t send_to_connection_f(connection_t *connection, FILE *file,
+                             size_t msg_len);
 
 #endif
