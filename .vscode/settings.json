@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.flatpy": "python",
+        "*.pyobjpy": "python",
+        "stdlib.h": "c"
+    }
+}

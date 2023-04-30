@@ -17,13 +17,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/socket.h> // socket(), bind(), listen(), accept()
 #include <sys/stat.h>
 #include <sys/wait.h> // waitpid()
+#include <time.h>
 #include <unistd.h>
 
 #include "blocklist.h"
 #include "connection.h"
+#include "md5.h"
 #include "request.h"
 #include "response.h"
 
@@ -34,7 +37,7 @@ volatile int running        = 1;
 volatile int parent         = 1;
 volatile int num_children   = 0;
 int          port           = 8080;
-int          ttl            = 60;
+int          cache_timeout  = 60;
 char        *blocklist_path = "blocklist";
 char        *cache_path     = "cache";
 blocklist_t *blocklist      = NULL;
@@ -42,7 +45,9 @@ blocklist_t *blocklist      = NULL;
 // Function prototypes
 void handle_request(connection_t *connection);
 
-void print_usage(char *argv[]) { printf("Usage: %s [port] [ttl]\n", argv[0]); }
+void print_usage(char *argv[]) {
+    printf("Usage: %s [port] [cache_timeout]\n", argv[0]);
+}
 
 /**
  * @brief Handle SIGINT and SIGCHLD signal
@@ -98,7 +103,7 @@ int main(int argc, char *argv[]) {
         port = atoi(argv[1]);
     }
     if (argc > 2) {
-        ttl = atoi(argv[2]);
+        cache_timeout = atoi(argv[2]);
     }
 
     // Validate command line arguments
@@ -106,7 +111,7 @@ int main(int argc, char *argv[]) {
         print_usage(argv);
         exit(EXIT_FAILURE);
     }
-    if (ttl < 1) {
+    if (cache_timeout < 1) {
         print_usage(argv);
         exit(EXIT_FAILURE);
     }
@@ -181,7 +186,8 @@ int main(int argc, char *argv[]) {
         }
 
         // Fork process
-        pid_t pid = fork();
+        // pid_t pid = fork();
+        pid_t pid = 0;
         if (pid == -1) {
             perror("fork");
             exit(EXIT_FAILURE);
@@ -192,7 +198,7 @@ int main(int argc, char *argv[]) {
             parent = 0;
 
             // Close server socket
-            close(server_fd);
+            // close(server_fd);
 
             // Handle request
             connection_t connection = {
@@ -211,7 +217,7 @@ int main(int argc, char *argv[]) {
             close(fd);
 
             // Exit child process
-            exit(EXIT_SUCCESS);
+            // exit(EXIT_SUCCESS);
         }
 
         // Parent process
@@ -239,9 +245,9 @@ int main(int argc, char *argv[]) {
  * @param connection The connection to handle
  */
 void handle_request(connection_t *connection) {
-    http_message_t *message;
-    request_t      *request;
-    response_t     *response;
+    http_message_t *message  = NULL;
+    request_t      *request  = NULL;
+    response_t     *response = NULL;
 
     // Recv the request from the client
     message = http_message_recv(connection);
@@ -274,10 +280,78 @@ void handle_request(connection_t *connection) {
     http_message_header_remove(message, "Proxy-Authorization");
     http_message_header_remove(message, "Proxy-Authenticate");
 
-    // Send the request to the server
-    response = response_fetch(request);
+    // Send the request to the serve
+    // Get a hash key from the request
+    char key[1024];
+    request_get_key(request, key, 1024);
+    uint8_t hash[16];
+    char    hash_str[33];
+    // Compute the MD5 hash of the request key
+    md5String(key, hash);
+    // Convert the hash to a string for the cache entry path
+    for (int i = 0; i < 16; i++) {
+        sprintf(hash_str + (i * 2), "%02x", hash[i]);
+    }
+    char path[2048], meta_path[2048];
+    snprintf(path, 2048, "%s/%s", cache_path, hash_str);
+    snprintf(meta_path, 2048, "%s/.%s", cache_path, hash_str);
+    printf("path: %s\n", path);
+    printf("meta_path: %s\n", meta_path);
+    // Check if the request is in the cache
+    FILE *f, *f2;
+    f = fopen(path, "r");
+    if (f != NULL) {
+        // Check if the cached response is still valid
+        struct stat attr;
+        stat(path, &attr);
+        time_t now = time(NULL);
+        if (difftime(now, attr.st_mtime) > cache_timeout) {
+            // Remove the cached response
+            fclose(f);
+            remove(path);
+        } else {
+            // Read the response from the cache
+            response = response_read(f);
+            fclose(f);
+            http_message_headers_print(response->message);
+            if (response == NULL) {
+                fprintf(stderr, "Error: Failed to read the cached response\n");
+            }
+        }
+    }
+    // If the response is not in the cache, fetch it from the server
     if (response == NULL) {
-        fprintf(stderr, "Error: Failed to send the request\n");
+        response = response_fetch(request);
+        if (response == NULL) {
+            fprintf(stderr, "Error: Failed to send the request\n");
+            response_send_error(connection, 500, "Internal Server Error");
+            request_free(request);
+            return;
+        }
+        // Cache the response
+        f = fopen(path, "w");
+        if (f == NULL) {
+            fprintf(stderr, "Error: Failed to cache the response\n");
+        } else {
+            f2 = fopen(meta_path, "w");
+            if (f2 == NULL) {
+                fprintf(stderr, "Error: Failed to cache the response\n");
+            } else {
+                fprintf(f2, "%s", key);
+                fclose(f2);
+            }
+            if (0 != response_write(response, f)) {
+                fprintf(stderr, "Error: Failed to cache the response\n");
+                fclose(f);
+                remove(path);
+            } else {
+                fclose(f);
+            }
+        }
+    }
+
+    if (response == NULL) {
+        fprintf(stderr, "Error: Failed to read the response\n");
         response_send_error(connection, 500, "Internal Server Error");
         request_free(request);
         return;

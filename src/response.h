@@ -47,23 +47,23 @@ response_t *response_create(int status_code, char *reason);
 
 /**
  * @brief Set the response body
- * 
+ *
  * @param response Response to set body of
  * @param body Body to set
  * @param len Length of body
- * 
+ *
  * @return int 0 on success, -1 on failure
-*/
+ */
 int response_set_body(response_t *response, char *body, size_t len);
 
 /**
  * @brief Set the response body
- * 
+ *
  * @param response Response to set body of
  * @param f File to read from
- * 
+ *
  * @return int 0 on success, -1 on failure
-*/
+ */
 int response_set_body_f(response_t *response, FILE *f);
 
 /**
@@ -101,13 +101,31 @@ response_t *response_parse(http_message_t *message);
 
 /**
  * @brief Send an error response
- * 
+ *
  * @param connection Connection to send response on
  * @param status_code Status code
  * @param reason Reason
- * 
+ *
  * @return int 0 on success, -1 on failure
-*/
-int response_send_error(connection_t *connection, int status_code, char *reason);
+ */
+int response_send_error(connection_t *connection, int status_code,
+                        char *reason);
+
+/**
+ * @brief Write a response to a file
+ *
+ * @param response Response to write
+ * @param f File to write to
+ * @return int 0 on success, -1 on failure
+ */
+int response_write(response_t *response, FILE *f);
+
+/**
+ * @brief Read a response from a file
+ *
+ * @param f File to read from
+ * @return response_t* Response
+ */
+response_t *response_read(FILE *f);
 
 #endif

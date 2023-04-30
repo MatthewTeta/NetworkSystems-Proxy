@@ -479,14 +479,14 @@ int request_is_cacheable(request_t *request) {
     if (request->uri == NULL) {
         return 0;
     }
-    char *cache_control =
-        http_message_header_get(request->message, "Cache-Control");
-    if (cache_control != NULL) {
-        if (strcmp(cache_control, "no-cache") == 0) {
-            fprintf(stderr, "Request is not cacheable because of Cache-Control\n");
-            return 0;
-        }
-    }
+    // char *cache_control =
+    //     http_message_header_get(request->message, "Cache-Control");
+    // if (cache_control != NULL) {
+    //     if (strcmp(cache_control, "no-cache") == 0) {
+    //         fprintf(stderr, "Request is not cacheable because of Cache-Control\n");
+    //         return 0;
+    //     }
+    // }
     return 1;
 }
 

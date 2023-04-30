@@ -39,8 +39,6 @@ blocklist_t *blocklist_init(const char *filepath) {
     list->count       = 0;
     list->list        = malloc(sizeof(blocklist_t *) * list->size);
 
-    printf("INFO: Initializing blocklist.\n");
-
     // Open the blocklist file
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
@@ -94,6 +92,9 @@ void blocklist_free(blocklist_t *list) {
 int blocklist_add(blocklist_t *blocklist, const char *test) {
     if (blocklist == NULL || test == NULL) {
         fprintf(stderr, "Invalid arguments\n");
+        return -1;
+    }
+    if (strcmp(test, "") == 0) {
         return -1;
     }
     char *new_ip = malloc(INET_ADDRSTRLEN);

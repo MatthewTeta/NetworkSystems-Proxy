@@ -15,7 +15,6 @@
 #include <string.h>
 #include <sys/sendfile.h>
 
-
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
@@ -183,9 +182,11 @@ http_message_t *http_message_recv(connection_t *connection) {
             http_message_free(message);
             return NULL;
         }
-        // fprintf(stderr, "message->message_len: %ld\n", message->message_size);
+        // fprintf(stderr, "message->message_len: %ld\n",
+        // message->message_size);
         message->message_size += MESSAGE_CHUNK_SIZE;
-        // fprintf(stderr, "message->message_len: %ld\n", message->message_size);
+        // fprintf(stderr, "message->message_len: %ld\n",
+        // message->message_size);
         if (message->message == NULL)
             message->message = malloc(message->message_size);
         else
@@ -276,7 +277,8 @@ http_message_t *http_message_recv(connection_t *connection) {
         message->body_len = 0;
         http_message_header_set(message, "Content-Length", "0");
     }
-    // fprintf(stderr, "Header length: %lu, Body length: %lu, (a+b)(%lu), Message "
+    // fprintf(stderr, "Header length: %lu, Body length: %lu, (a+b)(%lu),
+    // Message "
     //             "len: %lu, Message size: %lu\n",
     //             message->header_len, message->body_len,
     //             message->header_len + message->body_len,
@@ -294,8 +296,9 @@ http_message_t *http_message_recv(connection_t *connection) {
         // message->message_size +=
         //     ((message->header_len + message->body_len) / MESSAGE_CHUNK_SIZE)
         //     * MESSAGE_CHUNK_SIZE;
-        // fprintf(stderr, "message->message_size: %ld\n", message->message_size);
-        // message->message = realloc(message->message, message->message_size);
+        // fprintf(stderr, "message->message_size: %ld\n",
+        // message->message_size); message->message = realloc(message->message,
+        // message->message_size);
         message->message =
             realloc(message->message, message->header_len + message->body_len);
         // memset(message->message + message->message_len, 0,
@@ -316,14 +319,15 @@ http_message_t *http_message_recv(connection_t *connection) {
         //     fprintf(stderr, "Body is longer than content length.\n");
         // }
         while (read_remaining) {
-            // fprintf(stderr, "Reading %d bytes from socket.\n", read_remaining);
-            // Use recv to copy the message into the stream
+            // fprintf(stderr, "Reading %d bytes from socket.\n",
+            // read_remaining); Use recv to copy the message into the stream
             size_t recv_len = min(MESSAGE_CHUNK_SIZE, read_remaining);
             // fprintf(stderr, "Reading %ld bytes from socket.\n", recv_len);
             bytes_read =
                 recv(connection->fd, message->message + message->message_len,
                      recv_len, 0);
-            // fprintf(stderr, "Read %ld bytes from client socket.\n", bytes_read);
+            // fprintf(stderr, "Read %ld bytes from client socket.\n",
+            // bytes_read);
             if (bytes_read == 0) {
                 fprintf(stderr, "Client socket closed.\n");
                 http_message_free(message);
@@ -741,5 +745,5 @@ int http_headers_send(http_headers_t *headers, connection_t *connection) {
 void http_get_message_buffer(http_message_t *message, char **data,
                              size_t *size) {
     *data = message->message;
-    *size = message->message_size;
+    *size = message->message_len;
 }

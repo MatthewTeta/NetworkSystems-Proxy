@@ -264,7 +264,7 @@ int response_send_error(connection_t *connection, int status_code,
         fprintf(stderr, "Could not create response\n");
         return -1;
     }
-    response_set_body(response, reason, strlen(reason));
+    // response_set_body(response, reason, strlen(reason));
     int rv = response_send(response, connection);
     if (rv != 0) {
         fprintf(stderr, "Could not send response\n");
@@ -273,4 +273,66 @@ int response_send_error(connection_t *connection, int status_code,
     }
     response_free(response);
     return 0;
+}
+
+/**
+ * @brief Write a response to a file
+ *
+ * @param response Response to write
+ * @param f File to write to
+ * @return int 0 on success, -1 on failure
+ */
+int response_write(response_t *response, FILE *file) {
+    // Before parsing the response (further), cache it
+    char  *buffer = NULL;
+    size_t size;
+    http_get_message_buffer(response->message, &buffer, &size);
+    // Write the data to the file
+    size_t ntot = 0;
+    while (ntot < size) {
+        size_t n = fwrite(buffer + ntot, 1, size - ntot, file);
+        if (n == 0) {
+            perror("Failed to write file");
+            return -1;
+        }
+        ntot += n;
+    }
+    return 0;
+}
+
+/**
+ * @brief Read a response from a file
+ *
+ * @param f File to read from
+ * @return response_t* Response
+ */
+response_t *response_read(FILE *file) {
+    char  *data = NULL;
+    size_t size = 0;
+    // Determine the file size
+    fseek(file, 0, SEEK_END);
+    size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Allocate or reallocate a buffer for the file contents
+    data = malloc(size);
+    if (!data) {
+        perror("Failed to allocate memory");
+        fclose(file);
+        exit(1);
+    }
+
+    // Read the file contents into the buffer
+    size_t ntot = 0;
+    while (ntot < size) {
+        size_t n = fread(data + ntot, 1, size - ntot, file);
+        if (n == 0) {
+            perror("Failed to read file");
+            free(data);
+            return NULL;
+        }
+        ntot += n;
+    }
+    http_message_t *message = http_message_create(data, size);
+    return response_parse(message);
 }
