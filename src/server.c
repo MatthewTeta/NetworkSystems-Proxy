@@ -271,7 +271,7 @@ connection_t *connect_to_hostname(char *host, int port) {
 
     // Get the address of the host
 
-    sprintf(port_str, "%d", port);
+    sprintf(port_str, "%d", port == -1 ? 80 : port);
     status = getaddrinfo(host, port_str, &hints, &res);
     if (status != 0) {
         fprintf(stderr, "Error: Failed to get address info for %s: %s\n", host,
@@ -344,6 +344,7 @@ ssize_t send_to_connection(connection_t *connection, char *msg,
     }
     ssize_t bytes_sent = 0;
     while (bytes_sent < msg_len) {
+        // DEBUG_PRINT("Sending %ld bytes\n", msg_len - bytes_sent);
         ssize_t sent =
             send(connection->fd, msg + bytes_sent, msg_len - bytes_sent, 0);
         if (sent < 0) {
@@ -354,6 +355,11 @@ ssize_t send_to_connection(connection_t *connection, char *msg,
             // DEBUG_PRINT("Sent 0 bytes in send_to_connection... \n");
             break;
         }
+        // char *tmp = malloc(sent + 1);
+        // memcpy(tmp, msg + bytes_sent, sent);
+        // tmp[sent] = '\0';
+        // DEBUG_PRINT("Sent %ld bytes: %s\n", sent, tmp);
+        // free(tmp);
         bytes_sent += sent;
     }
     return bytes_sent;
@@ -393,7 +399,7 @@ ssize_t send_to_connection_f(connection_t *connection, FILE *file,
     while (bytes_sent < msg_len) {
         ssize_t sent = sendfile(connection->fd, fd, &off, msg_len - bytes_sent);
         if (sent < 0) {
-            fprintf(stderr, "Error: Failed to send message\n");
+            fprintf(stderr, "Error: Failed to send message_f\n");
             return -1;
         }
         if (sent == 0) {

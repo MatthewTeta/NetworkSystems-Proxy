@@ -216,12 +216,6 @@ http_message_t *http_message_recv(connection_t *connection) {
         } else if (rv == 0) {
             // Timeout -> close connection
             DEBUG_PRINT("Timeout occured in http_message_recv()\n");
-            DEBUG_PRINT("RECIEVED (%lu): \n%s\n\n", message->message_len,
-                        message->message);
-            if (message->message_len == 0) {
-                close_connection(connection);
-                exit(-1);
-            }
             http_message_free(message);
             return NULL;
         }

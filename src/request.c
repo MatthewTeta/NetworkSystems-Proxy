@@ -55,26 +55,49 @@ int request_send(request_t *request, connection_t *connection) {
     // Prepare the request line
     char request_line[1024];
     memset(request_line, 0, 1024);
-    sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
-            request->version);
-    // DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
+    if (request->query != NULL) {
+        sprintf(request_line, "%s %s?%s %s\r\n", request->method, request->uri,
+                request->query, request->version);
+    } else {
+        sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
+                request->version);
+    }
+    // sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
+    // request->version); DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
     http_message_set_header_line(request->message, request_line);
     // Prepare the host header
     char host[1024];
     memset(host, 0, 1024);
+    // if (request->port != -1) {
+    //     if (request->https != -1) {
+    //         if (request->https == 1) {
+    //             sprintf(host, "https://%s:%d", request->host, request->port);
+    //         } else {
+    //             sprintf(host, "http://%s:%d", request->host, request->port);
+    //         }
+    //     } else {
+    //         sprintf(host, "%s:%d", request->host, request->port);
+    //     }
+    // } else {
+    //     sprintf(host, "%s", request->host);
+    // }
+    // if (request->https != -1) {
+    //     strcat(host, request->https ? "https://" : "http://");
+    // }
+    strcat(host, request->host);
     if (request->port != -1) {
-        if (request->https != -1) {
-            if (request->https == 1) {
-                sprintf(host, "https://%s:%d", request->host, request->port);
-            } else {
-                sprintf(host, "http://%s:%d", request->host, request->port);
-            }
-        } else {
-            sprintf(host, "%s:%d", request->host, request->port);
-        }
-    } else {
-        sprintf(host, "%s", request->host);
+        char port[10];
+        memset(port, 0, 10);
+        sprintf(port, ":%d", request->port);
+        strcat(host, port);
     }
+    // strcat(host, request->uri);
+    // if (request->query != NULL) {
+    //     strcat(host, "?");
+    //     strcat(host, request->query);
+    // }
+    DEBUG_PRINT("HOST: %s\n", host);
+
     http_message_header_set(request->message, "Host", host);
     // Send the request
     int status = http_message_send(request->message, connection);
@@ -105,21 +128,18 @@ void request_free(request_t *request) {
 
 // Private function definitions
 int request_header_parse(request_t *request) {
-    static int initialized = 0;
-    regex_t    req_reg;
-    if (!initialized) {
-        initialized = 1;
-        // Parse the request line using regex
-        int reg_status = regcomp(&req_reg, REQUEST_REGEX, REG_EXTENDED);
-        if (reg_status != 0) {
-            DEBUG_PRINT("Error compiling regex.\n");
-            return -1;
-        }
+    regex_t req_reg;
+    // Parse the request line using regex
+    int reg_status = regcomp(&req_reg, REQUEST_REGEX, REG_EXTENDED);
+    if (reg_status != 0) {
+        DEBUG_PRINT("Error compiling regex.\n");
+        return -1;
     }
     http_message_t *message = request->message;
     regmatch_t      uri_matches[REQUEST_REGEX_INDEX_COUNT];
     int             status      = 0;
     char           *header_line = http_message_get_header_line(message);
+    DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
     if (header_line == NULL) {
         DEBUG_PRINT("Error getting header line.\n");
         return -1;
@@ -127,6 +147,7 @@ int request_header_parse(request_t *request) {
     // DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
     status = regexec(&req_reg, header_line, REQUEST_REGEX_INDEX_COUNT,
                      uri_matches, 0);
+    regfree(&req_reg);
     if (status != 0) {
         char error_message[1024];
         regerror(status, &req_reg, error_message, 1024);
@@ -144,7 +165,11 @@ int request_header_parse(request_t *request) {
                         uri_matches[REQUEST_REGEX_INDEX_PROTOCOL].rm_so,
                     "https", 5) == 0) {
             request->https = 1;
+        } else {
+            request->https = 0;
         }
+    } else {
+        request->https = -1;
     }
     // Get the host
     if (uri_matches[REQUEST_REGEX_INDEX_HOSTNAME].rm_so != -1) {
@@ -162,7 +187,7 @@ int request_header_parse(request_t *request) {
         request->port = atoi(port_str);
         free(port_str);
     } else {
-        request->port = 80;
+        request->port = -1;
     }
     // Get the uri
     if (uri_matches[REQUEST_REGEX_INDEX_PATH].rm_so != -1) {

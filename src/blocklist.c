@@ -57,7 +57,10 @@ blocklist_t *blocklist_init(const char *filepath) {
         line[strlen(line) - 1] = '\0';
         // Add the entry to the blocklist
         blocklist_add(list, line);
+        free(line);
+        line = NULL;
     }
+    free(line);
 
     // Close the file
     fclose(fp);
@@ -90,6 +93,10 @@ void blocklist_free(blocklist_t *list) {
  * @return int 0 on success, -1 on failure
  */
 int blocklist_add(blocklist_t *blocklist, const char *test) {
+    if (blocklist == NULL || test == NULL) {
+        DEBUG_PRINT("Invalid arguments\n");
+        return -1;
+    }
     char *new_ip = malloc(INET_ADDRSTRLEN);
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     if (strlen(new_ip) == 0) {
@@ -124,6 +131,9 @@ int blocklist_add(blocklist_t *blocklist, const char *test) {
  * @return int 0 if not in blocklist, 1 if in blocklist
  */
 int blocklist_check(blocklist_t *blocklist, const char *test) {
+    if (blocklist == NULL) {
+        return 0;
+    }
     char new_ip[INET_ADDRSTRLEN];
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     // if (strlen(new_ip) == 0) {

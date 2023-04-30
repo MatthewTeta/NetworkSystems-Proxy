@@ -86,6 +86,7 @@ void proxy_start() {
     memset(&config, 0, sizeof(config));
     config.port          = port;
     config.verbose       = verbose;
+    config.forking       = 0;
     config.handle_client = handle_client;
     server_start(config);
 
@@ -119,20 +120,6 @@ void proxy_stop() {
 int proxy_is_running() { return proxy_running; }
 
 /**
- * @brief Exit the child process
- */
-void exit_child(connection_t *connection) {
-    if (verbose) {
-        printf("Exiting the child process\n");
-    }
-    // Close the client socket
-    close_connection(connection);
-
-    // Exit the child process
-    exit(0);
-}
-
-/**
  * @brief Handle a new client connection.
  *
  * @param arg Request
@@ -159,7 +146,7 @@ void handle_client(connection_t *connection) {
         if (request == NULL) {
             DEBUG_PRINT("Error: Failed to parse the request\n");
             response_send_error(connection, 400, "Bad Request");
-            exit_child(connection);
+            return;
         }
 
         // Check if the request is in the blocklist
@@ -171,13 +158,14 @@ void handle_client(connection_t *connection) {
             // continue;
             // TODO: Change this
             request_free(request);
-            exit_child(connection);
+            return;
         }
 
-        connection_keep_alive = request_is_connection_keep_alive(request);
-        connection_keep_alive |= !http_message_header_compare(
-            message, "Proxy-Connection", "Keep-Alive");
-        DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
+        // connection_keep_alive = request_is_connection_keep_alive(request);
+        // connection_keep_alive |= !http_message_header_compare(
+        //     message, "Proxy-Connection", "Keep-Alive");
+        // DEBUG_PRINT("Connection: Keep-Alive = %d\n", connection_keep_alive);
+        http_message_header_set(message, "Connection", "close");
 
         // Add the proxy headers
         http_message_header_set(message, "Forwarded", connection->ip);
@@ -198,17 +186,20 @@ void handle_client(connection_t *connection) {
                 // Send a 504 Gateway Timeout response
                 // This may be another error
                 // TODO: Check if this is the correct error
-                response_send_error(connection, 504, "Gateway Timeout");
+                response_send_error(connection, 404, "Not Found");
                 // response_send(NULL, clientfd);
                 DEBUG_PRINT(
                     "Error: Failed to get the response from the server\n");
-                exit_child(connection);
+                request_free(request);
+                return;
             }
             // Send the response to the client
             if (0 != response_send(response, connection)) {
                 fprintf(stderr, "Error: Failed to send the response to the "
                                 "client\n");
-                exit_child(connection);
+                request_free(request);
+                response_free(response);
+                return;
             }
         } else {
             // Request is cacheable
@@ -227,13 +218,16 @@ void handle_client(connection_t *connection) {
                 // response_send(NULL, clientfd);
                 DEBUG_PRINT(
                     "Error: Failed to get the response from the cache\n");
-                exit_child(connection);
+                request_free(request);
+                return;
             }
             // Send the response to the client
             if (0 != response_send(response, connection)) {
                 fprintf(stderr,
                         "Error: Failed to send the response to the client\n");
-                exit_child(connection);
+                request_free(request);
+                response_free(response);
+                return;
             }
         }
 
@@ -242,9 +236,11 @@ void handle_client(connection_t *connection) {
 
         // Free the response
         response_free(response);
+
+        break;
     }
 
-    exit_child(connection);
+    return;
 }
 
 /**

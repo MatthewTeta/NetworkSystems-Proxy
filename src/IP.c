@@ -47,15 +47,16 @@ void hostname_to_ip(const char *hostname, char *ipstr, size_t ipstr_len) {
             memset(&hints, 0, sizeof(hints));
             hints.ai_family   = AF_INET;
             hints.ai_socktype = SOCK_STREAM;
-            
+
             if ((errcode = getaddrinfo(hostname, NULL, &hints, &res)) != 0) {
                 fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errcode));
                 return;
             }
 
             struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-            void *addr = &(ipv4->sin_addr);
+            void               *addr = &(ipv4->sin_addr);
             inet_ntop(res->ai_family, addr, str, sizeof(str));
+            freeaddrinfo(res);
             strncpy(ipstr, str, ipstr_len);
             return;
         } else

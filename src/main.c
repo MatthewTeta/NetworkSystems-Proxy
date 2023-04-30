@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "proxy.h"
@@ -88,9 +89,9 @@ int main(int argc, char *argv[]) {
     proxy_start();
 
     // Wait for the proxy server to stop
-    // while (proxy_is_running()) {
-    //     sleep(1);
-    // }
+    while (proxy_is_running()) {
+        sleep(1);
+    }
 
     DEBUG_PRINT("Proxy server stopped.\n");
 
