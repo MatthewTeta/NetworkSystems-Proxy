@@ -16,8 +16,8 @@
 
 #include <stdio.h>
 
+#include "connection.h"
 #include "http.h"
-#include "server.h"
 
 // #define REQUEST_REGEX_PATH "([^ \\?]*)?"
 

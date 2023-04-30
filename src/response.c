@@ -18,10 +18,9 @@
 #include <sys/sendfile.h>
 #include <unistd.h>
 
-#include "debug.h"
+#include "connection.h"
 #include "http.h"
 #include "request.h"
-#include "server.h"
 
 /**
  * @brief Receive a response from the connection
@@ -54,21 +53,22 @@ response_t *response_recv(connection_t *connection) {
  */
 response_t *response_fetch(request_t *request) {
     // Open a connection to the server
-    connection_t *server_connection =
-        connect_to_hostname(request->host, request->port);
-    if (server_connection == NULL) {
+    connection_t server_connection = {0};
+
+    if (0 !=
+        connect_to_hostname(request->host, request->port, &server_connection)) {
         fprintf(stderr, "Could not connect to server\n");
         return NULL;
     }
 
     // Send the message
-    request_send(request, server_connection);
+    request_send(request, &server_connection);
 
     // Get the response
-    response_t *response = response_recv(server_connection);
+    response_t *response = response_recv(&server_connection);
 
     // Close the connection
-    close_connection(server_connection);
+    close_connection(&server_connection);
 
     return response;
 }
@@ -87,7 +87,7 @@ int response_send(response_t *response, connection_t *connection) {
     char            header_line[4096];
     snprintf(header_line, 4096, "%s %d %s\r\n", response->version,
              response->status_code, response->reason);
-    DEBUG_PRINT("--> %s", header_line);
+    fprintf(stderr, "--> %s", header_line);
     http_message_set_header_line(message, header_line);
     rv = http_message_send(message, connection);
     if (rv != 0) {
@@ -250,14 +250,15 @@ int response_set_body_f(response_t *response, FILE *f) {
 
 /**
  * @brief Send an error response
- * 
+ *
  * @param connection Connection to send response on
  * @param status_code Status code
  * @param reason Reason
- * 
+ *
  * @return int 0 on success, -1 on failure
-*/
-int response_send_error(connection_t *connection, int status_code, char *reason) {
+ */
+int response_send_error(connection_t *connection, int status_code,
+                        char *reason) {
     response_t *response = response_create(status_code, reason);
     if (response == NULL) {
         fprintf(stderr, "Could not create response\n");

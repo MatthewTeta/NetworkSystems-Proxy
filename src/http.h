@@ -14,7 +14,7 @@
 
 #include <stdio.h>
 
-#include "server.h"
+#include "connection.h"
 
 #define HTTP_VERSION                 "HTTP/1.1"
 #define HTTP_HEADER_COUNT_DEFAULT    16
