@@ -50,6 +50,16 @@ int http_parse_host(char *host, char **hostname, int *port, char **uri,
 http_message_t *http_message_create();
 
 /**
+ * @brief Create a new HTTP message from a buffer
+ * 
+ * @param buffer Buffer
+ * @param buffer_size Buffer size
+ * 
+ * @return http_message_t* HTTP message
+ */
+http_message_t *http_message_create_from_buffer(char *buffer, int buffer_size);
+
+/**
  * @brief Recv an HTTP message from a connection
  *
  * @param connection Connection

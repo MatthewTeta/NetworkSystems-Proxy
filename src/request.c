@@ -36,9 +36,6 @@ request_t *request_recv(connection_t *connection) {
         return NULL;
     }
 
-    fprintf(stderr, "<-- %s %s %s\n", request->method, request->uri,
-                request->version);
-
     return request;
 }
 
@@ -95,7 +92,7 @@ int request_send(request_t *request, connection_t *connection) {
     //     strcat(host, "?");
     //     strcat(host, request->query);
     // }
-    fprintf(stderr, "HOST: %s\n", host);
+    // fprintf(stderr, "HOST: %s\n", host);
 
     http_message_header_set(request->message, "Host", host);
     // Send the request
@@ -138,12 +135,11 @@ int request_header_parse(request_t *request) {
     regmatch_t      uri_matches[REQUEST_REGEX_INDEX_COUNT];
     int             status      = 0;
     char           *header_line = http_message_get_header_line(message);
-    fprintf(stderr, "HEADER_LINE: %s\n", header_line);
     if (header_line == NULL) {
         fprintf(stderr, "Error getting header line.\n");
         return -1;
     }
-    // fprintf(stderr, "HEADER_LINE: %s\n", header_line);
+    printf("%s\n", header_line);
     status = regexec(&req_reg, header_line, REQUEST_REGEX_INDEX_COUNT,
                      uri_matches, 0);
     regfree(&req_reg);
@@ -203,6 +199,8 @@ int request_header_parse(request_t *request) {
             strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so,
                     uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_eo -
                         uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so);
+    } else {
+        request->query = NULL;
     }
     // Get the http version
     if (uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_so != -1) {
@@ -215,6 +213,9 @@ int request_header_parse(request_t *request) {
     // Get the Host header
     char *host = http_message_header_get(message, "Host");
     if (host != NULL) {
+        if (request->host != NULL) {
+            free(request->host);
+        }
         request->host  = strndup(host, strlen(host));
         char *port_str = strchr(host, ':');
         if (port_str != NULL) {
@@ -223,16 +224,17 @@ int request_header_parse(request_t *request) {
         }
     }
 
-    fprintf(stderr, " -- METHOD: %s\n", request->method);
-    fprintf(stderr, " -- HTTPS: %d\n", request->https);
-    fprintf(stderr, " -- HOST: %s\n", request->host);
-    fprintf(stderr, " -- PORT: %d\n", request->port);
-    fprintf(stderr, " -- URI: %s\n", request->uri);
-    fprintf(stderr, " -- QUERY: %s\n", request->query);
-    fprintf(stderr, " -- VERSION: %s\n", request->version);
+    // fprintf(stderr, " -- METHOD: %s\n", request->method);
+    // fprintf(stderr, " -- HTTPS: %d\n", request->https);
+    // fprintf(stderr, " -- HOST: %s\n", request->host);
+    // fprintf(stderr, " -- PORT: %d\n", request->port);
+    // fprintf(stderr, " -- URI: %s\n", request->uri);
+    // fprintf(stderr, " -- QUERY: %s\n", request->query);
+    // fprintf(stderr, " -- VERSION: %s\n", request->version);
 
     return 0;
-} // int request_header_parse(request_t *request) {
+}
+// int request_header_parse(request_t *request) {
 //     http_message_t *message = request->message;
 //     // Parse the request line using regex
 //     static int        regex_compiled = 0;
@@ -479,12 +481,15 @@ int request_is_cacheable(request_t *request) {
     if (request->uri == NULL) {
         return 0;
     }
+    if (request->query != NULL) {
+        return 0;
+    }
     // char *cache_control =
     //     http_message_header_get(request->message, "Cache-Control");
     // if (cache_control != NULL) {
     //     if (strcmp(cache_control, "no-cache") == 0) {
-    //         fprintf(stderr, "Request is not cacheable because of Cache-Control\n");
-    //         return 0;
+    //         fprintf(stderr, "Request is not cacheable because of
+    //         Cache-Control\n"); return 0;
     //     }
     // }
     return 1;

@@ -164,6 +164,27 @@ http_message_t *http_message_create() {
     return message;
 }
 
+/**
+ * @brief Create a new HTTP message from a buffer
+ *
+ * @param buffer Buffer
+ * @param buffer_size Buffer size
+ *
+ * @return http_message_t* HTTP message
+ */
+http_message_t *http_message_create_from_buffer(char *buffer, int buffer_size) {
+    http_message_t *message = http_message_create();
+    message->message        = buffer;
+    message->message_size   = buffer_size;
+    message->message_len    = buffer_size;
+    message->header_len =
+        strstr(message->message, "\r\n\r\n") - message->message + 4;
+    message->body     = message->message + message->header_len;
+    message->body_len = message->message_len - message->header_len;
+    http_headers_parse(message);
+    return message;
+}
+
 http_message_t *http_message_recv(connection_t *connection) {
     http_message_t *message = http_message_create();
 
@@ -425,7 +446,6 @@ void http_message_free(http_message_t *message) {
  * @return http_headers_t* Parsed headers
  */
 void http_headers_parse(http_message_t *message) {
-    http_headers_t *headers = message->headers;
     // Make a copy of the header buffer so we can modify it
     char *header_buf = malloc(message->header_len + 1);
     memcpy(header_buf, message->message, message->header_len);
@@ -459,10 +479,9 @@ void http_headers_parse(http_message_t *message) {
             // Malformed header
             // fprintf(stderr, "Malformed header: %s\n", line);
             free(line_copy); // free the copy of line
-            http_headers_free(headers);
-            free(header_buf);
-            return;
-            // continue;
+            line = strtok_r(NULL, "\r\n", &saveptr1);
+            i++;
+            continue;
         }
         // fprintf(stderr, "HEADER -- %s: %s\n", key, val);
         http_message_header_set_(message, key, val, 0);
@@ -480,6 +499,12 @@ void http_headers_parse(http_message_t *message) {
  * @return char* Header line
  */
 void http_message_set_header_line(http_message_t *message, char *header_line) {
+    if (message == NULL) {
+        return;
+    }
+    if (message->header_line != NULL) {
+        free(message->header_line);
+    }
     message->header_line = strdup(header_line);
 }
 

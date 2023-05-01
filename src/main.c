@@ -60,20 +60,6 @@ void sig_handler(int sig) {
 
         // Stop accepting new connections
         running = 0;
-
-        // Kill all children
-        kill(0, SIGTERM);
-
-        // Wait for all children to exit
-        while (num_children > 0) {
-            wait(NULL);
-        }
-
-        // Free memory
-        blocklist_free(blocklist);
-
-        // Exit the program
-        exit(0);
     } else if (sig == SIGCHLD) {
         // Wait for all children to exit
         while (waitpid(-1, NULL, WNOHANG) > 0) {
@@ -130,7 +116,7 @@ int main(int argc, char *argv[]) {
     struct sigaction sa;
     sa.sa_handler = sig_handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART; // Restart functions if interrupted by handler
+    sa.sa_flags = 0; // Restart functions if interrupted by handler
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("sigaction(SIGINT) failed");
         fprintf(stderr, "Error setting up signal handler.\n");
@@ -181,13 +167,13 @@ int main(int argc, char *argv[]) {
         int fd      = accept(server_fd, (struct sockaddr *)&address,
                              (socklen_t *)&addrlen);
         if (fd == -1) {
-            perror("accept");
-            exit(EXIT_FAILURE);
+            // If accept() was interrupted by a signal, try again
+            continue;
         }
 
         // Fork process
-        // pid_t pid = fork();
-        pid_t pid = 0;
+        pid_t pid = fork();
+        // pid_t pid = 0;
         if (pid == -1) {
             perror("fork");
             exit(EXIT_FAILURE);
@@ -198,7 +184,7 @@ int main(int argc, char *argv[]) {
             parent = 0;
 
             // Close server socket
-            // close(server_fd);
+            close(server_fd);
 
             // Handle request
             connection_t connection = {
@@ -216,8 +202,11 @@ int main(int argc, char *argv[]) {
             // Close client socket
             close(fd);
 
+            // Free memory
+            blocklist_free(blocklist);
+
             // Exit child process
-            // exit(EXIT_SUCCESS);
+            exit(EXIT_SUCCESS);
         }
 
         // Parent process
@@ -228,8 +217,29 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    printf("Stopping the proxy...\n");
+
     // Close server socket
     close(server_fd);
+
+    // Block the SIGCHLD signal
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+
+    // Kill all children
+    // kill(0, SIGTERM);
+
+    // Wait for all children to exit
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        num_children--;
+    }
+    printf("All children exited (%d)\n", num_children);
+
+    // Free memory
+    printf("Freeing blocklist...\n");
+    blocklist_free(blocklist);
 
     // Exit program
     return EXIT_SUCCESS;
@@ -251,10 +261,15 @@ void handle_request(connection_t *connection) {
 
     // Recv the request from the client
     message = http_message_recv(connection);
+    if (message == NULL) {
+        fprintf(stderr, "Error: Failed to receive the request\n");
+        return;
+    }
     request = request_parse(message);
     if (request == NULL) {
         fprintf(stderr, "Error: Failed to parse the request\n");
         response_send_error(connection, 400, "Bad Request");
+        http_message_free(message);
         return;
     }
 
@@ -295,8 +310,6 @@ void handle_request(connection_t *connection) {
     char path[2048], meta_path[2048];
     snprintf(path, 2048, "%s/%s", cache_path, hash_str);
     snprintf(meta_path, 2048, "%s/.%s", cache_path, hash_str);
-    printf("path: %s\n", path);
-    printf("meta_path: %s\n", meta_path);
     // Check if the request is in the cache
     FILE *f, *f2;
     f = fopen(path, "r");
@@ -313,7 +326,6 @@ void handle_request(connection_t *connection) {
             // Read the response from the cache
             response = response_read(f);
             fclose(f);
-            http_message_headers_print(response->message);
             if (response == NULL) {
                 fprintf(stderr, "Error: Failed to read the cached response\n");
             }

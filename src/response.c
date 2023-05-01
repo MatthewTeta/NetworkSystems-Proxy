@@ -81,13 +81,17 @@ response_t *response_fetch(request_t *request) {
  * @return int 0 on success, -1 on failure
  */
 int response_send(response_t *response, connection_t *connection) {
+    if (response == NULL || connection == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
+        return -1;
+    }
     int rv;
     // create the response message
     http_message_t *message = response->message;
     char            header_line[4096];
     snprintf(header_line, 4096, "%s %d %s\r\n", response->version,
              response->status_code, response->reason);
-    fprintf(stderr, "--> %s", header_line);
+    fprintf(stderr, "--> %s\n", header_line);
     http_message_set_header_line(message, header_line);
     rv = http_message_send(message, connection);
     if (rv != 0) {
@@ -117,6 +121,7 @@ int response_header_parse(response_t *response) {
     }
 
     char *header_line = http_message_get_header_line(response->message);
+    fprintf(stderr, "<-- %s\n", header_line);
 
     // Execute the regex
     regmatch_t match[4];
@@ -318,8 +323,7 @@ response_t *response_read(FILE *file) {
     data = malloc(size);
     if (!data) {
         perror("Failed to allocate memory");
-        fclose(file);
-        exit(1);
+        return NULL;
     }
 
     // Read the file contents into the buffer
@@ -333,6 +337,6 @@ response_t *response_read(FILE *file) {
         }
         ntot += n;
     }
-    http_message_t *message = http_message_create(data, size);
+    http_message_t *message = http_message_create_from_buffer(data, size);
     return response_parse(message);
 }
