@@ -22,7 +22,7 @@
 // #define REQUEST_REGEX_PATH "([^ \\?]*)?"
 
 #define REQUEST_REGEX_WHITESPACE     "[ \t]+"
-#define REQUEST_REGEX_METHOD         "(GET|POST)"
+#define REQUEST_REGEX_METHOD         "(GET)"
 #define REQUEST_REGEX_PROTOCOL       "(http[s]?://)?"
 #define REQUEST_REGEX_HOSTNAME       "([^/:\\?]+)?"
 #define REQUEST_REGEX_PORT           "(:([0-9]+))?"

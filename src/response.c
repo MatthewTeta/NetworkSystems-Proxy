@@ -39,6 +39,8 @@ response_t *response_recv(connection_t *connection) {
         return NULL;
     }
     response->message = response_message;
+    char *header_line = http_message_get_header_line(response_message);
+    fprintf(stderr, "<-- %s\n", header_line);
     response_header_parse(response);
 
     return response;
@@ -121,7 +123,6 @@ int response_header_parse(response_t *response) {
     }
 
     char *header_line = http_message_get_header_line(response->message);
-    fprintf(stderr, "<-- %s\n", header_line);
 
     // Execute the regex
     regmatch_t match[4];

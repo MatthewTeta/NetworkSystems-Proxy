@@ -9,8 +9,9 @@
  *
  */
 
-#include <arpa/inet.h>  // inet_ntoa()
-#include <errno.h>      // errno
+#include <arpa/inet.h> // inet_ntoa()
+#include <errno.h>     // errno
+#include <fcntl.h>
 #include <netdb.h>      // gethostbyname()
 #include <netinet/in.h> // struct sockaddr_in
 #include <signal.h>     // signal()
@@ -20,9 +21,11 @@
 #include <sys/file.h>
 #include <sys/socket.h> // socket(), bind(), listen(), accept()
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h> // waitpid()
 #include <time.h>
 #include <unistd.h>
+#include <wait.h> // waitpid()
 
 #include "blocklist.h"
 #include "connection.h"
@@ -56,8 +59,6 @@ void print_usage(char *argv[]) {
  */
 void sig_handler(int sig) {
     if (sig == SIGINT) {
-        printf("Stopping the proxy...\n");
-
         // Stop accepting new connections
         running = 0;
     } else if (sig == SIGCHLD) {
@@ -228,11 +229,12 @@ int main(int argc, char *argv[]) {
     sigaddset(&mask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &mask, NULL);
 
-    // Kill all children
+    // // Kill all children
     // kill(0, SIGTERM);
 
     // Wait for all children to exit
-    while (waitpid(-1, NULL, WNOHANG) > 0) {
+    while (num_children > 0) {
+        wait(NULL);
         num_children--;
     }
     printf("All children exited (%d)\n", num_children);
@@ -269,7 +271,6 @@ void handle_request(connection_t *connection) {
     if (request == NULL) {
         fprintf(stderr, "Error: Failed to parse the request\n");
         response_send_error(connection, 400, "Bad Request");
-        http_message_free(message);
         return;
     }
 
@@ -310,7 +311,22 @@ void handle_request(connection_t *connection) {
     char path[2048], meta_path[2048];
     snprintf(path, 2048, "%s/%s", cache_path, hash_str);
     snprintf(meta_path, 2048, "%s/.%s", cache_path, hash_str);
+    printf("Cache path: %s\n", path);
     // Check if the request is in the cache
+    int fd = -1;
+    while ((fd = open(path, __O_PATH)) == -1)
+        sleep(1);
+    if (fd == -1) {
+        perror("open");
+        request_free(request);
+        exit(EXIT_FAILURE);
+    }
+    printf("File descriptor: %d\n", fd);
+    if (flock(fd, LOCK_EX) == -1) {
+        perror("flock");
+        exit(EXIT_FAILURE);
+    }
+    // Get a file descriptor for the cached response
     FILE *f, *f2;
     f = fopen(path, "r");
     if (f != NULL) {
@@ -318,11 +334,18 @@ void handle_request(connection_t *connection) {
         struct stat attr;
         stat(path, &attr);
         time_t now = time(NULL);
-        if (difftime(now, attr.st_mtime) > cache_timeout) {
+        // Check if the file is empty
+        if (attr.st_size == 0) {
+            printf("Cached response is empty\n");
+            fclose(f);
+            remove(path);
+        } else if (difftime(now, attr.st_mtime) > cache_timeout) {
+            printf("Cached response is stale\n");
             // Remove the cached response
             fclose(f);
             remove(path);
         } else {
+            printf("Cached response is valid\n");
             // Read the response from the cache
             response = response_read(f);
             fclose(f);
@@ -333,11 +356,18 @@ void handle_request(connection_t *connection) {
     }
     // If the response is not in the cache, fetch it from the server
     if (response == NULL) {
+        printf("Fetching response from the server\n");
         response = response_fetch(request);
         if (response == NULL) {
             fprintf(stderr, "Error: Failed to send the request\n");
             response_send_error(connection, 500, "Internal Server Error");
             request_free(request);
+            // Unlock the cache entry
+            if (flock(fd, LOCK_UN) == -1) {
+                perror("flock");
+                exit(EXIT_FAILURE);
+            }
+            close(fd);
             return;
         }
         // Cache the response
@@ -361,6 +391,12 @@ void handle_request(connection_t *connection) {
             }
         }
     }
+    // Unlock the cache entry
+    if (flock(fd, LOCK_UN) == -1) {
+        perror("flock");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
 
     if (response == NULL) {
         fprintf(stderr, "Error: Failed to read the response\n");
