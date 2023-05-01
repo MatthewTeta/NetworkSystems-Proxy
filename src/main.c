@@ -312,10 +312,19 @@ void handle_request(connection_t *connection) {
     snprintf(path, 2048, "%s/%s", cache_path, hash_str);
     snprintf(meta_path, 2048, "%s/.%s", cache_path, hash_str);
     printf("Cache path: %s\n", path);
+    // Touch the file
+    int fd = open(path, O_RDONLY | O_CREAT);
+    // if (fd != -1)
+    //     close(fd);
     // Check if the request is in the cache
-    int fd = -1;
-    while ((fd = open(path, __O_PATH)) == -1)
-        sleep(1);
+    // fd = open(path, __O_PATH, 0644);
+    // while (fd == -1) {
+    //     printf("Waiting for file to be created...\n");
+    //     fd = open(path, O_RDONLY | O_CREAT | O_EXCL);
+    //     if (fd != 1)
+    //         break;
+    //     sleep(1);
+    // }
     if (fd == -1) {
         perror("open");
         request_free(request);
@@ -328,7 +337,7 @@ void handle_request(connection_t *connection) {
     }
     // Get a file descriptor for the cached response
     FILE *f, *f2;
-    f = fopen(path, "r");
+    f = fdopen(fd, "r");
     if (f != NULL) {
         // Check if the cached response is still valid
         struct stat attr;
@@ -337,18 +346,18 @@ void handle_request(connection_t *connection) {
         // Check if the file is empty
         if (attr.st_size == 0) {
             printf("Cached response is empty\n");
-            fclose(f);
+            // fclose(f);
             remove(path);
-        } else if (difftime(now, attr.st_mtime) > cache_timeout) {
+        } else if (difftime(now, attr.st_ctime) > cache_timeout) {
             printf("Cached response is stale\n");
             // Remove the cached response
-            fclose(f);
+            // fclose(f);
             remove(path);
         } else {
             printf("Cached response is valid\n");
             // Read the response from the cache
             response = response_read(f);
-            fclose(f);
+            // fclose(f);
             if (response == NULL) {
                 fprintf(stderr, "Error: Failed to read the cached response\n");
             }
@@ -370,11 +379,13 @@ void handle_request(connection_t *connection) {
             close(fd);
             return;
         }
+        fclose(f);
         // Cache the response
         f = fopen(path, "w");
         if (f == NULL) {
             fprintf(stderr, "Error: Failed to cache the response\n");
         } else {
+            fd = fileno(f);
             f2 = fopen(meta_path, "w");
             if (f2 == NULL) {
                 fprintf(stderr, "Error: Failed to cache the response\n");
@@ -384,10 +395,10 @@ void handle_request(connection_t *connection) {
             }
             if (0 != response_write(response, f)) {
                 fprintf(stderr, "Error: Failed to cache the response\n");
-                fclose(f);
+                // fclose(f);
                 remove(path);
             } else {
-                fclose(f);
+                // fclose(f);
             }
         }
     }
