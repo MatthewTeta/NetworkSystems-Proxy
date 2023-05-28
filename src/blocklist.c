@@ -20,7 +20,6 @@
 #include <string.h>
 
 #include "IP.h"
-#include "debug.h"
 
 // Struct definitions
 struct blocklist {
@@ -40,12 +39,10 @@ blocklist_t *blocklist_init(const char *filepath) {
     list->count       = 0;
     list->list        = malloc(sizeof(blocklist_t *) * list->size);
 
-    printf("INFO: Initializing blocklist.\n");
-
     // Open the blocklist file
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
-        DEBUG_PRINT("Could not open blocklist file\n");
+        fprintf(stderr, "Could not open blocklist file\n");
         blocklist_free(list);
         return NULL;
     }
@@ -94,13 +91,16 @@ void blocklist_free(blocklist_t *list) {
  */
 int blocklist_add(blocklist_t *blocklist, const char *test) {
     if (blocklist == NULL || test == NULL) {
-        DEBUG_PRINT("Invalid arguments\n");
+        fprintf(stderr, "Invalid arguments\n");
+        return -1;
+    }
+    if (strcmp(test, "") == 0) {
         return -1;
     }
     char *new_ip = malloc(INET_ADDRSTRLEN);
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     if (strlen(new_ip) == 0) {
-        DEBUG_PRINT("Could not convert %s to an IP\n", test);
+        fprintf(stderr, "Could not convert %s to an IP\n", test);
         free(new_ip);
         return -1;
     }
@@ -137,7 +137,7 @@ int blocklist_check(blocklist_t *blocklist, const char *test) {
     char new_ip[INET_ADDRSTRLEN];
     hostname_to_ip(test, new_ip, INET_ADDRSTRLEN);
     // if (strlen(new_ip) == 0) {
-    //     DEBUG_PRINT("Could not convert %s to an IP\n", test);
+    //     fprintf(stderr, "Could not convert %s to an IP\n", test);
     //     return 0;
     // }
     // Check if the entry is in the blocklist

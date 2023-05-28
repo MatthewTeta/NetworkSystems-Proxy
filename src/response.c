@@ -18,10 +18,9 @@
 #include <sys/sendfile.h>
 #include <unistd.h>
 
-#include "debug.h"
+#include "connection.h"
 #include "http.h"
 #include "request.h"
-#include "server.h"
 
 /**
  * @brief Receive a response from the connection
@@ -40,6 +39,8 @@ response_t *response_recv(connection_t *connection) {
         return NULL;
     }
     response->message = response_message;
+    char *header_line = http_message_get_header_line(response_message);
+    fprintf(stderr, "<-- %s\n", header_line);
     response_header_parse(response);
 
     return response;
@@ -54,21 +55,22 @@ response_t *response_recv(connection_t *connection) {
  */
 response_t *response_fetch(request_t *request) {
     // Open a connection to the server
-    connection_t *server_connection =
-        connect_to_hostname(request->host, request->port);
-    if (server_connection == NULL) {
+    connection_t server_connection = {0};
+
+    if (0 !=
+        connect_to_hostname(request->host, request->port, &server_connection)) {
         fprintf(stderr, "Could not connect to server\n");
         return NULL;
     }
 
     // Send the message
-    request_send(request, server_connection);
+    request_send(request, &server_connection);
 
     // Get the response
-    response_t *response = response_recv(server_connection);
+    response_t *response = response_recv(&server_connection);
 
     // Close the connection
-    close_connection(server_connection);
+    close_connection(&server_connection);
 
     return response;
 }
@@ -81,13 +83,17 @@ response_t *response_fetch(request_t *request) {
  * @return int 0 on success, -1 on failure
  */
 int response_send(response_t *response, connection_t *connection) {
+    if (response == NULL || connection == NULL) {
+        fprintf(stderr, "Invalid arguments\n");
+        return -1;
+    }
     int rv;
     // create the response message
     http_message_t *message = response->message;
     char            header_line[4096];
     snprintf(header_line, 4096, "%s %d %s\r\n", response->version,
              response->status_code, response->reason);
-    DEBUG_PRINT("--> %s", header_line);
+    fprintf(stderr, "--> %s\n", header_line);
     http_message_set_header_line(message, header_line);
     rv = http_message_send(message, connection);
     if (rv != 0) {
@@ -250,20 +256,21 @@ int response_set_body_f(response_t *response, FILE *f) {
 
 /**
  * @brief Send an error response
- * 
+ *
  * @param connection Connection to send response on
  * @param status_code Status code
  * @param reason Reason
- * 
+ *
  * @return int 0 on success, -1 on failure
-*/
-int response_send_error(connection_t *connection, int status_code, char *reason) {
+ */
+int response_send_error(connection_t *connection, int status_code,
+                        char *reason) {
     response_t *response = response_create(status_code, reason);
     if (response == NULL) {
         fprintf(stderr, "Could not create response\n");
         return -1;
     }
-    response_set_body(response, reason, strlen(reason));
+    // response_set_body(response, reason, strlen(reason));
     int rv = response_send(response, connection);
     if (rv != 0) {
         fprintf(stderr, "Could not send response\n");
@@ -272,4 +279,65 @@ int response_send_error(connection_t *connection, int status_code, char *reason)
     }
     response_free(response);
     return 0;
+}
+
+/**
+ * @brief Write a response to a file
+ *
+ * @param response Response to write
+ * @param f File to write to
+ * @return int 0 on success, -1 on failure
+ */
+int response_write(response_t *response, FILE *file) {
+    // Before parsing the response (further), cache it
+    char  *buffer = NULL;
+    size_t size;
+    http_get_message_buffer(response->message, &buffer, &size);
+    // Write the data to the file
+    size_t ntot = 0;
+    while (ntot < size) {
+        size_t n = fwrite(buffer + ntot, 1, size - ntot, file);
+        if (n == 0) {
+            perror("Failed to write file");
+            return -1;
+        }
+        ntot += n;
+    }
+    return 0;
+}
+
+/**
+ * @brief Read a response from a file
+ *
+ * @param f File to read from
+ * @return response_t* Response
+ */
+response_t *response_read(FILE *file) {
+    char  *data = NULL;
+    size_t size = 0;
+    // Determine the file size
+    fseek(file, 0, SEEK_END);
+    size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Allocate or reallocate a buffer for the file contents
+    data = malloc(size);
+    if (!data) {
+        perror("Failed to allocate memory");
+        return NULL;
+    }
+
+    // Read the file contents into the buffer
+    size_t ntot = 0;
+    while (ntot < size) {
+        size_t n = fread(data + ntot, 1, size - ntot, file);
+        if (n == 0) {
+            perror("Failed to read file");
+            free(data);
+            return NULL;
+        }
+        ntot += n;
+    }
+    http_message_t *message = http_message_create_from_buffer(data, size);
+    return response_parse(message);
 }

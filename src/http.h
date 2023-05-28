@@ -14,7 +14,7 @@
 
 #include <stdio.h>
 
-#include "server.h"
+#include "connection.h"
 
 #define HTTP_VERSION                 "HTTP/1.1"
 #define HTTP_HEADER_COUNT_DEFAULT    16
@@ -48,6 +48,16 @@ int http_parse_host(char *host, char **hostname, int *port, char **uri,
  * @return http_message_t* HTTP message
  */
 http_message_t *http_message_create();
+
+/**
+ * @brief Create a new HTTP message from a buffer
+ * 
+ * @param buffer Buffer
+ * @param buffer_size Buffer size
+ * 
+ * @return http_message_t* HTTP message
+ */
+http_message_t *http_message_create_from_buffer(char *buffer, int buffer_size);
 
 /**
  * @brief Recv an HTTP message from a connection

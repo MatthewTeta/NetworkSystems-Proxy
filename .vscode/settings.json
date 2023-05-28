@@ -2,9 +2,6 @@
     "files.associations": {
         "*.flatpy": "python",
         "*.pyobjpy": "python",
-        "ip.h": "c",
-        "proxy.h": "c",
-        "server.h": "c",
-        "response.h": "c"
+        "stdlib.h": "c"
     }
 }

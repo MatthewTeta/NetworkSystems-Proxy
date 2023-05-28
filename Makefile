@@ -3,14 +3,13 @@
 # Build the proxy server
 
 CC = gcc
-CFLAGS = -Wall -Werror -g -pthread -DDEBUG
+CFLAGS = -Wall -Werror -g -DDEBUG -O0
 
 SRCDIR = src
 OBJDIR = obj
 LIBDIR = libraries
-TESTDIR = tests
 
-SOURCES = $(SRCDIR)/md5.c $(SRCDIR)/cache.c $(SRCDIR)/blocklist.c $(SRCDIR)/IP.c $(SRCDIR)/http.c $(SRCDIR)/request.c $(SRCDIR)/response.c $(SRCDIR)/server.c $(SRCDIR)/proxy.c $(SRCDIR)/main.c
+SOURCES = $(SRCDIR)/md5.c $(SRCDIR)/blocklist.c $(SRCDIR)/connection.c $(SRCDIR)/IP.c $(SRCDIR)/http.c $(SRCDIR)/request.c $(SRCDIR)/response.c $(SRCDIR)/main.c
 OBJECTS = $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SOURCES))
 EXECUTABLE = main
 
@@ -18,17 +17,6 @@ all: clean mkdirs $(EXECUTABLE)
 
 mkdirs:
 	mkdir -p $(OBJDIR) $(LIBDIR) $(SRCDIR)
-
-# Call the Makefile in the tests directory
-# tests:
-# 	$(MAKE) -C $(TESTDIR)
-
-# cpmd5:
-# 	cp $(LIBDIR)/md5-c/md5.h $(SRCDIR)
-# 	cp $(LIBDIR)/md5-c/md5.c $(SRCDIR)
-
-# $(OBJDIR)/md5.o: $(SRCDIR)/md5.c
-# 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@

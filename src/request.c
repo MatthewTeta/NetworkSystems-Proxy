@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "debug.h"
 #include "response.h"
 
 // Private function prototypes
@@ -23,7 +22,7 @@ request_t *request_new();
 request_t *request_recv(connection_t *connection) {
     request_t *request = request_new();
     request->message   = http_message_recv(connection);
-    // DEBUG_PRINT("http_message_recv complete\n");
+    // fprintf(stderr, "http_message_recv complete\n");
     if (request->message == NULL) {
         request_free(request);
         return NULL;
@@ -31,14 +30,11 @@ request_t *request_recv(connection_t *connection) {
 
     // Parse the request line
     int status = request_header_parse(request);
-    // DEBUG_PRINT("request_header_parse complete (%d)\n", status);
+    // fprintf(stderr, "request_header_parse complete (%d)\n", status);
     if (status != 0) {
         request_free(request);
         return NULL;
     }
-
-    DEBUG_PRINT("<-- %s %s %s\n", request->method, request->uri,
-                request->version);
 
     return request;
 }
@@ -63,7 +59,7 @@ int request_send(request_t *request, connection_t *connection) {
                 request->version);
     }
     // sprintf(request_line, "%s %s %s\r\n", request->method, request->uri,
-    // request->version); DEBUG_PRINT("REQUEST_LINE: %s\n", request_line);
+    // request->version); fprintf(stderr, "REQUEST_LINE: %s\n", request_line);
     http_message_set_header_line(request->message, request_line);
     // Prepare the host header
     char host[1024];
@@ -96,7 +92,7 @@ int request_send(request_t *request, connection_t *connection) {
     //     strcat(host, "?");
     //     strcat(host, request->query);
     // }
-    DEBUG_PRINT("HOST: %s\n", host);
+    // fprintf(stderr, "HOST: %s\n", host);
 
     http_message_header_set(request->message, "Host", host);
     // Send the request
@@ -132,26 +128,25 @@ int request_header_parse(request_t *request) {
     // Parse the request line using regex
     int reg_status = regcomp(&req_reg, REQUEST_REGEX, REG_EXTENDED);
     if (reg_status != 0) {
-        DEBUG_PRINT("Error compiling regex.\n");
+        fprintf(stderr, "Error compiling regex.\n");
         return -1;
     }
     http_message_t *message = request->message;
     regmatch_t      uri_matches[REQUEST_REGEX_INDEX_COUNT];
     int             status      = 0;
     char           *header_line = http_message_get_header_line(message);
-    DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
     if (header_line == NULL) {
-        DEBUG_PRINT("Error getting header line.\n");
+        fprintf(stderr, "Error getting header line.\n");
         return -1;
     }
-    // DEBUG_PRINT("HEADER_LINE: %s\n", header_line);
+    printf("%s\n", header_line);
     status = regexec(&req_reg, header_line, REQUEST_REGEX_INDEX_COUNT,
                      uri_matches, 0);
     regfree(&req_reg);
     if (status != 0) {
         char error_message[1024];
         regerror(status, &req_reg, error_message, 1024);
-        DEBUG_PRINT("Error parsing request line: %s\n", error_message);
+        fprintf(stderr, "Error parsing request line: %s\n", error_message);
         return -1;
     }
     // Get the method
@@ -204,6 +199,8 @@ int request_header_parse(request_t *request) {
             strndup(header_line + uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so,
                     uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_eo -
                         uri_matches[REQUEST_REGEX_INDEX_QUERY].rm_so);
+    } else {
+        request->query = NULL;
     }
     // Get the http version
     if (uri_matches[REQUEST_REGEX_INDEX_VERSION].rm_so != -1) {
@@ -216,6 +213,9 @@ int request_header_parse(request_t *request) {
     // Get the Host header
     char *host = http_message_header_get(message, "Host");
     if (host != NULL) {
+        if (request->host != NULL) {
+            free(request->host);
+        }
         request->host  = strndup(host, strlen(host));
         char *port_str = strchr(host, ':');
         if (port_str != NULL) {
@@ -224,16 +224,17 @@ int request_header_parse(request_t *request) {
         }
     }
 
-    DEBUG_PRINT(" -- METHOD: %s\n", request->method);
-    DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
-    DEBUG_PRINT(" -- HOST: %s\n", request->host);
-    DEBUG_PRINT(" -- PORT: %d\n", request->port);
-    DEBUG_PRINT(" -- URI: %s\n", request->uri);
-    DEBUG_PRINT(" -- QUERY: %s\n", request->query);
-    DEBUG_PRINT(" -- VERSION: %s\n", request->version);
+    // fprintf(stderr, " -- METHOD: %s\n", request->method);
+    // fprintf(stderr, " -- HTTPS: %d\n", request->https);
+    // fprintf(stderr, " -- HOST: %s\n", request->host);
+    // fprintf(stderr, " -- PORT: %d\n", request->port);
+    // fprintf(stderr, " -- URI: %s\n", request->uri);
+    // fprintf(stderr, " -- QUERY: %s\n", request->query);
+    // fprintf(stderr, " -- VERSION: %s\n", request->version);
 
     return 0;
-} // int request_header_parse(request_t *request) {
+}
+// int request_header_parse(request_t *request) {
 //     http_message_t *message = request->message;
 //     // Parse the request line using regex
 //     static int        regex_compiled = 0;
@@ -243,7 +244,7 @@ int request_header_parse(request_t *request) {
 //     if (regex_compiled == 0) {
 //         r_status = regcomp(&req_reg, REQUEST_URI_REGEX, REG_EXTENDED);
 //         if (r_status != 0) {
-//             DEBUG_PRINT("Error compiling regex.\n");
+//             fprintf(stderr, "Error compiling regex.\n");
 //             return -1;
 //         }
 //         regex_compiled = 1;
@@ -251,15 +252,15 @@ int request_header_parse(request_t *request) {
 //     int   status;
 //     char *header_line = http_message_get_header_line(message);
 //     if (header_line == NULL) {
-//         DEBUG_PRINT("Error getting header line.\n");
+//         fprintf(stderr, "Error getting header line.\n");
 //         return -1;
 //     }
-//     DEBUG_PRINT(" -- HEADER: %s\n", header_line);
+//     fprintf(stderr, " -- HEADER: %s\n", header_line);
 //     status = regexec(&req_reg, header_line, 8, uri_matches, 0);
 //     if (status != 0) {
 //         char error_message[1024];
 //         regerror(status, &req_reg, error_message, 1024);
-//         DEBUG_PRINT("Error parsing request line: %s\n", error_message);
+//         fprintf(stderr, "Error parsing request line: %s\n", error_message);
 //         return -1;
 //     }
 //     // Get the method
@@ -306,7 +307,7 @@ int request_header_parse(request_t *request) {
 //     } else {
 //         request->uri = strdup("/");
 //     }
-//     DEBUG_PRINT(" -- URI: %s\n", request->uri);
+//     fprintf(stderr, " -- URI: %s\n", request->uri);
 
 //     // Get the http version
 //     if (uri_matches[7].rm_so != -1) {
@@ -329,7 +330,7 @@ int request_header_parse(request_t *request) {
 //     //     status     = http_parse_host(host_hdr, &host, &port, &uri,
 //     &https);
 //     //     if (status != 0) {
-//     //         DEBUG_PRINT("Error parsing host header.\n");
+//     //         fprintf(stderr, "Error parsing host header.\n");
 //     //     } else {
 //     //         // Move the values to the request struct
 //     //         if (https != -1) {
@@ -382,26 +383,26 @@ int request_header_parse(request_t *request) {
 //         }
 //     }
 
-//     DEBUG_PRINT(" -- METHOD: %s\n", request->method);
-//     DEBUG_PRINT(" -- HTTPS: %d\n", request->https);
-//     DEBUG_PRINT(" -- HOST: %s\n", request->host);
-//     DEBUG_PRINT(" -- PORT: %d\n", request->port);
-//     DEBUG_PRINT(" -- URI: %s\n", request->uri);
-//     DEBUG_PRINT(" -- VERSION: %s\n", request->version);
+//     fprintf(stderr, " -- METHOD: %s\n", request->method);
+//     fprintf(stderr, " -- HTTPS: %d\n", request->https);
+//     fprintf(stderr, " -- HOST: %s\n", request->host);
+//     fprintf(stderr, " -- PORT: %d\n", request->port);
+//     fprintf(stderr, " -- URI: %s\n", request->uri);
+//     fprintf(stderr, " -- VERSION: %s\n", request->version);
 
 //     // #ifdef DEBUG
 //     //     // Print any whitespace in the request line
-//     //     DEBUG_PRINT(" -- WHITESPACE: ");
+//     //     fprintf(stderr, " -- WHITESPACE: ");
 //     //     char *w = request->host;
 //     //     while (*w != '\0') {
 //     //         if (isspace(*w)) {
-//     //             DEBUG_PRINT(".");
+//     //             fprintf(stderr, ".");
 //     //         } else {
-//     //             DEBUG_PRINT("%c", *w);
+//     //             fprintf(stderr, "%c", *w);
 //     //         }
 //     //         w++;
 //     //     }
-//     //     DEBUG_PRINT("\n");
+//     //     fprintf(stderr, "\n");
 //     // #endif
 
 //     return 0;
@@ -480,14 +481,17 @@ int request_is_cacheable(request_t *request) {
     if (request->uri == NULL) {
         return 0;
     }
-    char *cache_control =
-        http_message_header_get(request->message, "Cache-Control");
-    if (cache_control != NULL) {
-        if (strcmp(cache_control, "no-cache") == 0) {
-            DEBUG_PRINT("Request is not cacheable because of Cache-Control\n");
-            return 0;
-        }
+    if (request->query != NULL) {
+        return 0;
     }
+    // char *cache_control =
+    //     http_message_header_get(request->message, "Cache-Control");
+    // if (cache_control != NULL) {
+    //     if (strcmp(cache_control, "no-cache") == 0) {
+    //         fprintf(stderr, "Request is not cacheable because of
+    //         Cache-Control\n"); return 0;
+    //     }
+    // }
     return 1;
 }
 

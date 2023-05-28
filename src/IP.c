@@ -20,7 +20,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include "debug.h"
 
 // Global variables
 regex_t ip_regex, host_regex;
